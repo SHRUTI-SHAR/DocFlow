@@ -1,0 +1,2895 @@
+ 
+import { useState, useEffect, useRef } from "react";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
+import { useDocumentProcessingContext } from "@/contexts/DocumentProcessingContext";
+import { 
+  ArrowLeft, 
+  Save, 
+  Play, 
+  Trash2, 
+  Square,
+  Type,
+  Calendar,
+  Hash,
+  CheckSquare,
+  Mail,
+  Phone,
+  Zap,
+  Grid3X3,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignVerticalJustifyCenter,
+  AlignHorizontalJustifyCenter,
+  Copy,
+  Move,
+  Wand2,
+  Eye,
+  EyeOff,
+  FileText,
+  Image,
+  Signature,
+  Table,
+  Plus
+} from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { type Template } from "@/hooks/useTemplateManager";
+import { DocumentTemplateCanvas } from "./DocumentTemplateCanvas";
+import type { TemplateField } from "@/types/template";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { DocumentAnalysisService } from "@/services/documentAnalysis";
+import { TemplateLearningService } from "@/services/templateLearning";
+
+interface TemplateEditorProps {
+  template: Template;
+  onClose: () => void;
+  onSave?: (templateData: any) => void;
+  isNew?: boolean;
+  documentData?: string; // Add document data prop
+}
+
+export const TemplateEditor = ({ template, onClose, onSave, documentData }: TemplateEditorProps) => {
+  const { toast } = useToast();
+  const { 
+    isCreatingNewTemplate,
+    setIsCreatingNewTemplate,
+    newTemplateData,
+    setNewTemplateData,
+    newTemplateFields,
+    setNewTemplateFields,
+    newTemplateSections,
+    setNewTemplateSections,
+    newTemplateDocumentImage,
+    setNewTemplateDocumentImage
+  } = useDocumentProcessingContext();
+  
+  const [fields, setFields] = useState<TemplateField[]>([]);
+  const [selectedField, setSelectedField] = useState<TemplateField | null>(null);
+  const [documentImage, setDocumentImage] = useState<string | undefined>(documentData);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractionText, setExtractionText] = useState<string | null>(null);
+  const [showExtraction, setShowExtraction] = useState(false);
+  
+  // Advanced template management
+  const [sections, setSections] = useState<Array<{id: string, name: string, order: number}>>([
+    { id: 'general', name: 'General', order: 0 }
+  ]);
+  const [selectedSection, setSelectedSection] = useState<string>('general');
+  const [showSectionDialog, setShowSectionDialog] = useState(false);
+  const [newSectionName, setNewSectionName] = useState('');
+  const [editingSection, setEditingSection] = useState<string | null>(null);
+  const [editingSectionName, setEditingSectionName] = useState('');
+  
+  // Enhanced UX features
+  const [snapToGrid, setSnapToGrid] = useState(true);
+  const [showGrid, setShowGrid] = useState(false);
+  const [autoAlign, setAutoAlign] = useState(true);
+  const [fieldSpacing] = useState(20);
+  const [showFieldLabels, setShowFieldLabels] = useState(true);
+  const [multiSelect, setMultiSelect] = useState(false);
+  const [selectedFields, setSelectedFields] = useState<string[]>([]);
+  const [showToolbar, setShowToolbar] = useState(true);
+  const [lastScrollY, setLastScrollY] = useState(0);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  // Store hierarchical data from LLM directly to preserve exact field order
+  const [preservedHierarchicalData, setPreservedHierarchicalData] = useState<any>(null);
+  const [templateMetadata, setTemplateMetadata] = useState({
+    name: template.name || '',
+    description: template.description || '',
+    document_type: template.document_type || 'General',
+    version: template.version || '1.0',
+    status: template.status || 'draft' as 'draft' | 'active' | 'archived',
+    is_public: template.is_public || false
+  });
+  
+  // Refs to prevent infinite loops when loading from global state
+  const isLoadingFromGlobalRef = useRef(false);
+  const isSavingToGlobalRef = useRef(false);
+  
+  // Scroll position persistence key
+  const scrollPositionKey = `templateEditor_scroll_${template.id}`;
+  
+  // Restore scroll position when component mounts
+  useEffect(() => {
+    const restoreScroll = () => {
+      const savedScroll = localStorage.getItem(scrollPositionKey);
+      if (savedScroll) {
+        try {
+          const scrollPosition = parseInt(savedScroll, 10);
+          window.scrollTo(0, scrollPosition);
+        } catch (e) {
+          console.error('Failed to restore scroll position:', e);
+        }
+      }
+    };
+
+    // Try multiple times to ensure content is loaded
+    setTimeout(restoreScroll, 100);
+    setTimeout(restoreScroll, 300);
+    setTimeout(restoreScroll, 500);
+  }, [scrollPositionKey]);
+
+  // Save scroll position before unmount
+  useEffect(() => {
+    return () => {
+      const scrollPosition = window.scrollY;
+      localStorage.setItem(scrollPositionKey, scrollPosition.toString());
+    };
+  }, [scrollPositionKey]);
+  
+  // Restore overflow when dialogs close
+  useEffect(() => {
+    if (!showSaveDialog && !showSectionDialog && !showExtraction) {
+      // All dialogs are closed, ensure overflow is restored immediately
+      document.body.style.overflow = '';
+      document.body.style.overflowY = '';
+      document.documentElement.style.overflow = '';
+      document.documentElement.style.overflowY = '';
+    }
+  }, [showSaveDialog, showSectionDialog, showExtraction]);
+  
+  // Keep document image in sync if the prop changes
+  useEffect(() => {
+    if (documentData) setDocumentImage(documentData);
+  }, [documentData]);
+
+  // Auto-hide toolbar on scroll
+  useEffect(() => {
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      
+      if (currentScrollY > lastScrollY && currentScrollY > 100) {
+        // Scrolling down and past 100px - hide toolbar
+        setShowToolbar(false);
+      } else if (currentScrollY < lastScrollY) {
+        // Scrolling up - show toolbar
+        setShowToolbar(true);
+      }
+      
+      setLastScrollY(currentScrollY);
+      
+      // Save scroll position periodically
+      localStorage.setItem(scrollPositionKey, currentScrollY.toString());
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [lastScrollY, scrollPositionKey]);
+  
+  // Load template fields when component mounts or template changes
+  useEffect(() => {
+    // Prioritize hierarchical structure over fields array
+    const hierarchicalStructure = template?.metadata?.template_structure || template?.metadata?.hierarchical_data;
+    
+    // DON'T preserve hierarchical data when loading existing template
+    // Only preserve from fresh LLM extraction - this ensures manual edits regenerate metadata
+    // setPreservedHierarchicalData is only set during fresh LLM extraction (see testExtraction)
+    
+    if (hierarchicalStructure && typeof hierarchicalStructure === 'object') {
+      // Convert hierarchical structure to fields for editor
+      const editorFields = convertHierarchicalToFields(hierarchicalStructure);
+      setFields(editorFields);
+      
+      // Create sections from hierarchical structure
+      // Get key order from metadata to preserve section sequence
+      const keyOrder = (hierarchicalStructure as any)?._keyOrder;
+      const sectionMap = new Map();
+      let orderIndex = 0;
+      
+      // First, process keys in _keyOrder if available
+      if (Array.isArray(keyOrder) && keyOrder.length > 0) {
+        keyOrder.forEach((key: string) => {
+          if (!(key in hierarchicalStructure) || key.startsWith('_')) return;
+          
+          const sectionName = formatFieldName(key);
+          const sectionId = key.toLowerCase();
+          if (!sectionMap.has(sectionId)) {
+            sectionMap.set(sectionId, {
+              id: sectionId,
+              name: sectionName,
+              order: orderIndex++
+            });
+          }
+        });
+      }
+      
+      // Then, process remaining keys not in _keyOrder
+      Object.entries(hierarchicalStructure).forEach(([key, value]) => {
+        // Skip internal metadata keys
+        if (key.startsWith('_')) return;
+        
+        const sectionName = formatFieldName(key);
+        const sectionId = key.toLowerCase();
+        
+        // Only add if not already in map (from _keyOrder processing above)
+        if (!sectionMap.has(sectionId)) {
+          sectionMap.set(sectionId, {
+            id: sectionId,
+            name: sectionName,
+            order: orderIndex++
+          });
+        }
+      });
+      
+      // Sort sections by order (preserves LLM order from _keyOrder)
+      setSections(Array.from(sectionMap.values()).sort((a, b) => (a.order ?? 999) - (b.order ?? 999)));
+    } else if (template?.fields && Array.isArray(template.fields)) {
+      // Convert template fields to editor format
+      const editorFields = template.fields.map((field: any) => ({
+        id: field.id || `field-${Math.random().toString(36).substr(2, 9)}`,
+        type: field.type || 'text',
+        label: field.label || field.name || `Field ${field.id}`,
+        required: field.required ?? false,
+        x: field.x ?? field.position?.x ?? 120,
+        y: field.y ?? field.position?.y ?? 120,
+        width: field.width ?? field.position?.width ?? 200,
+        height: field.height ?? field.position?.height ?? 40,
+        confidence: field.confidence,
+        options: field.options,
+        validation: field.validation,
+        value: field.value,
+        suggested: field.suggested,
+        section: field.section || 'general', // Preserve section information
+        columns: field.columns || [], // Preserve table columns
+        // Preserve grouped table properties
+        isGroupedTable: field.isGroupedTable,
+        groupedHeaders: field.groupedHeaders
+      }));
+      setFields(editorFields);
+      
+      // Load sections from template metadata if available
+      if (template.metadata?.sections && Array.isArray(template.metadata.sections)) {
+        setSections(template.metadata.sections);
+      } else {
+        // For existing templates without saved sections, extract sections from fields
+        // Removed verbose logging
+        
+        // Extract unique sections from fields
+        const sectionMap = new Map();
+        editorFields.forEach(field => {
+          const sectionId = field.section || 'general';
+          const sectionName = formatFieldName(sectionId); // Strip page suffixes
+          
+          if (!sectionMap.has(sectionId)) {
+            sectionMap.set(sectionId, {
+              id: sectionId,
+              name: sectionName,
+              order: sectionMap.size
+            });
+          }
+        });
+        
+        // If we have hierarchical_data, use it to create proper sections
+        if (template.metadata?.hierarchical_data && typeof template.metadata.hierarchical_data === 'object') {
+          console.log('🔍 Also loading sections from hierarchical_data in template metadata');
+          
+          Object.entries(template.metadata.hierarchical_data).forEach(([key, value]) => {
+            // Skip internal metadata keys
+            if (key.startsWith('_')) return;
+            
+            const sectionName = formatFieldName(key); // Strip page suffixes
+            const sectionId = key.toLowerCase();
+            
+            if (!sectionMap.has(sectionId)) {
+              sectionMap.set(sectionId, {
+                id: sectionId,
+                name: sectionName,
+                order: sectionMap.size
+              });
+            }
+          });
+        }
+        
+        const extractedSections = Array.from(sectionMap.values());
+        console.log('🔍 Extracted sections from fields:', extractedSections);
+        setSections(extractedSections);
+        setFields(editorFields);
+      }
+    } else {
+      // Start with empty fields for new templates
+      setFields([]);
+    }
+  }, [template]);
+
+  // Helper function to deep compare arrays
+  const arraysEqual = (a: any[], b: any[]) => {
+    if (a.length !== b.length) return false;
+    return JSON.stringify(a) === JSON.stringify(b);
+  };
+
+  // Helper function to deep compare objects
+  const objectsEqual = (a: any, b: any) => {
+    return JSON.stringify(a) === JSON.stringify(b);
+  };
+
+  // Load from global state when component mounts (for template creation persistence)
+  useEffect(() => {
+    if (isCreatingNewTemplate && newTemplateFields.length > 0 && !isLoadingFromGlobalRef.current) {
+      // Only load if fields are actually different
+      if (!arraysEqual(fields, newTemplateFields)) {
+        isLoadingFromGlobalRef.current = true;
+        // Removed verbose logging
+        setFields(newTemplateFields);
+        // Reset flag after state update
+        setTimeout(() => {
+          isLoadingFromGlobalRef.current = false;
+        }, 0);
+      }
+    }
+  }, [isCreatingNewTemplate, newTemplateFields]); // Removed fields from deps to prevent loop
+
+  // Save to global state whenever fields change (for template creation persistence)
+  useEffect(() => {
+    if (isCreatingNewTemplate && fields.length > 0 && !isLoadingFromGlobalRef.current && !isSavingToGlobalRef.current) {
+      // Only save if different from global state (using length and shallow comparison for performance)
+      const fieldsChanged = fields.length !== newTemplateFields.length || 
+        !arraysEqual(fields, newTemplateFields);
+      
+      if (fieldsChanged) {
+        isSavingToGlobalRef.current = true;
+        // Removed verbose logging to prevent console spam
+        setNewTemplateFields(fields);
+        setTimeout(() => {
+          isSavingToGlobalRef.current = false;
+        }, 0);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fields, isCreatingNewTemplate]); // newTemplateFields intentionally omitted to prevent loop
+
+  // Load template metadata from global state when component mounts
+  useEffect(() => {
+    if (isCreatingNewTemplate && newTemplateData && !isLoadingFromGlobalRef.current) {
+      const newMetadata = {
+        name: newTemplateData.name || templateMetadata.name,
+        description: newTemplateData.description || templateMetadata.description,
+        document_type: newTemplateData.document_type || templateMetadata.document_type,
+        version: newTemplateData.version || templateMetadata.version,
+        status: newTemplateData.status || templateMetadata.status
+      };
+      
+      // Only update if actually different
+      if (!objectsEqual(templateMetadata, { ...templateMetadata, ...newMetadata })) {
+        isLoadingFromGlobalRef.current = true;
+        console.log('🔄 Loading template metadata from global state:', newTemplateData);
+        setTemplateMetadata(prev => ({
+          ...prev,
+          ...newMetadata
+        }));
+        setTimeout(() => {
+          isLoadingFromGlobalRef.current = false;
+        }, 0);
+      }
+    }
+  }, [isCreatingNewTemplate]); // Only run when isCreatingNewTemplate changes, not on every newTemplateData change
+
+  // Save template metadata to global state whenever it changes
+  useEffect(() => {
+    if (isCreatingNewTemplate && !isLoadingFromGlobalRef.current && !isSavingToGlobalRef.current) {
+      // Check if metadata actually changed before saving
+      const currentGlobal = {
+        name: newTemplateData?.name || '',
+        description: newTemplateData?.description || '',
+        document_type: newTemplateData?.document_type || 'General',
+        version: newTemplateData?.version || '1.0',
+        status: newTemplateData?.status || 'draft'
+      };
+      
+      const newGlobal = {
+        name: templateMetadata.name,
+        description: templateMetadata.description,
+        document_type: templateMetadata.document_type,
+        version: templateMetadata.version,
+        status: templateMetadata.status
+      };
+      
+      if (!objectsEqual(currentGlobal, newGlobal)) {
+        isSavingToGlobalRef.current = true;
+        console.log('💾 Saving template metadata to global state:', templateMetadata);
+        setNewTemplateData(prev => ({
+          ...prev,
+          ...newGlobal,
+          metadata: prev?.metadata || {}
+        }));
+        setTimeout(() => {
+          isSavingToGlobalRef.current = false;
+        }, 0);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateMetadata, isCreatingNewTemplate]); // newTemplateData intentionally omitted to prevent loop
+
+  // Load sections from global state when component mounts
+  useEffect(() => {
+    if (isCreatingNewTemplate && newTemplateSections.length > 0 && !isLoadingFromGlobalRef.current) {
+      // Only load if sections are actually different
+      if (!arraysEqual(sections, newTemplateSections)) {
+        isLoadingFromGlobalRef.current = true;
+        console.log('🔄 Loading sections from global state:', newTemplateSections);
+        setSections(newTemplateSections);
+        setTimeout(() => {
+          isLoadingFromGlobalRef.current = false;
+        }, 0);
+      }
+    }
+  }, [isCreatingNewTemplate]); // Only run when isCreatingNewTemplate changes
+
+  // Save sections to global state whenever they change
+  useEffect(() => {
+    if (isCreatingNewTemplate && sections.length > 0 && !isLoadingFromGlobalRef.current && !isSavingToGlobalRef.current) {
+      // Only save if different from global state
+      const sectionsChanged = sections.length !== newTemplateSections.length || 
+        !arraysEqual(sections, newTemplateSections);
+      
+      if (sectionsChanged) {
+        isSavingToGlobalRef.current = true;
+        console.log('💾 Saving sections to global state:', sections);
+        setNewTemplateSections(sections);
+        setTimeout(() => {
+          isSavingToGlobalRef.current = false;
+        }, 0);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sections, isCreatingNewTemplate]); // newTemplateSections intentionally omitted to prevent loop
+
+  // Load document image from global state when component mounts
+  useEffect(() => {
+    if (isCreatingNewTemplate && newTemplateDocumentImage) {
+      console.log('🔄 Loading document image from global state');
+      setDocumentImage(newTemplateDocumentImage);
+    }
+  }, [isCreatingNewTemplate, newTemplateDocumentImage]);
+
+  // Save document image to global state whenever it changes
+  useEffect(() => {
+    if (isCreatingNewTemplate && documentImage) {
+      console.log('💾 Saving document image to global state');
+      setNewTemplateDocumentImage(documentImage);
+    }
+  }, [documentImage, isCreatingNewTemplate, setNewTemplateDocumentImage]);
+
+  const fieldTypes = [
+    { value: 'text', label: 'Text', icon: Type },
+    { value: 'email', label: 'Email', icon: Mail },
+    { value: 'phone', label: 'Phone', icon: Phone },
+    { value: 'date', label: 'Date', icon: Calendar },
+    { value: 'number', label: 'Number', icon: Hash },
+    { value: 'checkbox', label: 'Checkbox', icon: CheckSquare },
+    { value: 'textarea', label: 'Textarea', icon: FileText },
+    { value: 'image', label: 'Image', icon: Image },
+    { value: 'signature', label: 'Signature', icon: Signature },
+    { value: 'table', label: 'Table', icon: Table },
+    { value: 'select', label: 'Dropdown', icon: Type },
+    { value: 'radio', label: 'Radio', icon: Type },
+    { value: 'file', label: 'File Upload', icon: FileText }
+  ];
+
+  // Removed frontend heading creation logic - using backend LLM response headings
+
+  // Helper functions (declared before JSX)
+  const handleFieldUpdate = (fieldId: string, updates: Partial<TemplateField>) => {
+    setFields(prev => prev.map(f => f.id === fieldId ? { ...f, ...updates } : f));
+    if (selectedField?.id === fieldId) {
+      setSelectedField(prev => prev ? { ...prev, ...updates } : null);
+    }
+  };
+
+  const addNewField = () => {
+    const newField: TemplateField = {
+      id: Date.now().toString(),
+      type: 'text',
+      label: 'New Field',
+      required: false,
+      x: 100 + fields.length * 20, // Offset new fields
+      y: 100 + fields.length * 20,
+      width: 200,
+      height: 40,
+      section: selectedSection
+    };
+    setFields(prev => [...prev, newField]);
+    setSelectedField(newField);
+  };
+
+  const addNewSection = () => {
+    if (newSectionName.trim()) {
+      const newSection = {
+        id: newSectionName.toLowerCase().replace(/\s+/g, '_'),
+        name: newSectionName.trim(),
+        order: sections.length
+      };
+      setSections(prev => [...prev, newSection]);
+      setSelectedSection(newSection.id);
+      setNewSectionName('');
+      setShowSectionDialog(false);
+      toast({
+        title: "Section created",
+        description: `Created section "${newSection.name}"`
+      });
+    }
+  };
+
+  const startEditingSection = (sectionId: string, currentName: string) => {
+    setEditingSection(sectionId);
+    setEditingSectionName(currentName);
+  };
+
+  const saveSectionEdit = () => {
+    if (editingSection && editingSectionName.trim()) {
+      const newName = editingSectionName.trim();
+      const newId = newName.toLowerCase().replace(/\s+/g, '_');
+      
+      // Update sections
+      setSections(prev => prev.map(section => 
+        section.id === editingSection 
+          ? { ...section, id: newId, name: newName }
+          : section
+      ));
+      
+      // Update fields that belong to this section
+      setFields(prev => prev.map(field => 
+        field.section === editingSection 
+          ? { ...field, section: newId }
+          : field
+      ));
+      
+      // Update selected section if it was the one being edited
+      if (selectedSection === editingSection) {
+        setSelectedSection(newId);
+      }
+      
+      setEditingSection(null);
+      setEditingSectionName('');
+      
+      toast({
+        title: "Section renamed",
+        description: `Section renamed to "${newName}"`
+      });
+    }
+  };
+
+  const cancelSectionEdit = () => {
+    setEditingSection(null);
+    setEditingSectionName('');
+  };
+
+  const addTableField = () => {
+    const newTableField: TemplateField = {
+      id: Date.now().toString(),
+      type: 'table',
+      label: 'New Table',
+      required: false,
+      x: 100 + fields.length * 20,
+      y: 100 + fields.length * 20,
+      width: 300,
+      height: 120,
+      section: selectedSection,
+      columns: ['Column 1', 'Column 2', 'Column 3']
+    };
+    setFields(prev => [...prev, newTableField]);
+    setSelectedField(newTableField);
+  };
+
+  const deleteField = (fieldId: string) => {
+    setFields(prev => prev.filter(f => f.id !== fieldId));
+    if (selectedField?.id === fieldId) {
+      setSelectedField(null);
+    }
+    setSelectedFields(prev => prev.filter(id => id !== fieldId));
+  };
+
+  // Enhanced UX functions
+  const duplicateField = (fieldId: string) => {
+    const field = fields.find(f => f.id === fieldId);
+    if (field) {
+      const newField: TemplateField = {
+        ...field,
+        id: Date.now().toString(),
+        label: `${field.label} (Copy)`,
+        x: field.x + 20,
+        y: field.y + 20
+      };
+      setFields(prev => [...prev, newField]);
+      setSelectedField(newField);
+      toast({
+        title: "Field duplicated",
+        description: `${field.label} has been duplicated`
+      });
+    }
+  };
+
+  const alignFields = (alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => {
+    if (selectedFields.length < 2) {
+      toast({
+        title: "Select multiple fields",
+        description: "Please select at least 2 fields to align them",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const selectedFieldsData = fields.filter(f => selectedFields.includes(f.id));
+    if (selectedFieldsData.length < 2) return;
+
+    const updatedFields = [...fields];
+
+    if (alignment === 'left') {
+      const minX = Math.min(...selectedFieldsData.map(f => f.x));
+      selectedFieldsData.forEach(field => {
+        const index = updatedFields.findIndex(f => f.id === field.id);
+        if (index !== -1) updatedFields[index].x = minX;
+      });
+    } else if (alignment === 'right') {
+      const maxX = Math.max(...selectedFieldsData.map(f => f.x + f.width));
+      selectedFieldsData.forEach(field => {
+        const index = updatedFields.findIndex(f => f.id === field.id);
+        if (index !== -1) updatedFields[index].x = maxX - field.width;
+      });
+    } else if (alignment === 'center') {
+      const avgX = selectedFieldsData.reduce((sum, f) => sum + f.x + f.width/2, 0) / selectedFieldsData.length;
+      selectedFieldsData.forEach(field => {
+        const index = updatedFields.findIndex(f => f.id === field.id);
+        if (index !== -1) updatedFields[index].x = avgX - field.width/2;
+      });
+    } else if (alignment === 'top') {
+      const minY = Math.min(...selectedFieldsData.map(f => f.y));
+      selectedFieldsData.forEach(field => {
+        const index = updatedFields.findIndex(f => f.id === field.id);
+        if (index !== -1) updatedFields[index].y = minY;
+      });
+    } else if (alignment === 'bottom') {
+      const maxY = Math.max(...selectedFieldsData.map(f => f.y + f.height));
+      selectedFieldsData.forEach(field => {
+        const index = updatedFields.findIndex(f => f.id === field.id);
+        if (index !== -1) updatedFields[index].y = maxY - field.height;
+      });
+    } else if (alignment === 'middle') {
+      const avgY = selectedFieldsData.reduce((sum, f) => sum + f.y + f.height/2, 0) / selectedFieldsData.length;
+      selectedFieldsData.forEach(field => {
+        const index = updatedFields.findIndex(f => f.id === field.id);
+        if (index !== -1) updatedFields[index].y = avgY - field.height/2;
+      });
+    }
+
+    setFields(updatedFields);
+    toast({
+      title: "Fields aligned",
+      description: `Fields aligned to ${alignment}`
+    });
+  };
+
+  const distributeFields = (direction: 'horizontal' | 'vertical') => {
+    if (selectedFields.length < 3) {
+      toast({
+        title: "Select multiple fields",
+        description: "Please select at least 3 fields to distribute them",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const selectedFieldsData = fields.filter(f => selectedFields.includes(f.id));
+    if (selectedFieldsData.length < 3) return;
+
+    const updatedFields = [...fields];
+    const sortedFields = [...selectedFieldsData].sort((a, b) => 
+      direction === 'horizontal' ? a.x - b.x : a.y - b.y
+    );
+
+    if (direction === 'horizontal') {
+      const startX = sortedFields[0].x;
+      const endX = sortedFields[sortedFields.length - 1].x;
+      const spacing = (endX - startX) / (sortedFields.length - 1);
+      
+      sortedFields.forEach((field, index) => {
+        const fieldIndex = updatedFields.findIndex(f => f.id === field.id);
+        if (fieldIndex !== -1) {
+          updatedFields[fieldIndex].x = startX + (spacing * index);
+        }
+      });
+    } else {
+      const startY = sortedFields[0].y;
+      const endY = sortedFields[sortedFields.length - 1].y;
+      const spacing = (endY - startY) / (sortedFields.length - 1);
+      
+      sortedFields.forEach((field, index) => {
+        const fieldIndex = updatedFields.findIndex(f => f.id === field.id);
+        if (fieldIndex !== -1) {
+          updatedFields[fieldIndex].y = startY + (spacing * index);
+        }
+      });
+    }
+
+    setFields(updatedFields);
+    toast({
+      title: "Fields distributed",
+      description: `Fields distributed ${direction}ly`
+    });
+  };
+
+  const autoArrangeFields = () => {
+    if (fields.length === 0) return;
+
+    const updatedFields = [...fields];
+    const cols = 4; // Fixed to 4 columns maximum
+    const spacing = fieldSpacing;
+    const fieldWidth = 200;
+    const fieldHeight = 50;
+
+    fields.forEach((field, index) => {
+      const row = Math.floor(index / cols);
+      const col = index % cols;
+      const fieldIndex = updatedFields.findIndex(f => f.id === field.id);
+      
+      if (fieldIndex !== -1) {
+        updatedFields[fieldIndex].x = 100 + col * (fieldWidth + spacing);
+        updatedFields[fieldIndex].y = 100 + row * (fieldHeight + spacing);
+      }
+    });
+
+    setFields(updatedFields);
+    toast({
+      title: "Fields auto-arranged",
+      description: "Fields have been automatically arranged in 4 columns"
+    });
+  };
+
+
+  const toggleFieldSelection = (fieldId: string) => {
+    if (multiSelect) {
+      setSelectedFields(prev => 
+        prev.includes(fieldId) 
+          ? prev.filter(id => id !== fieldId)
+          : [...prev, fieldId]
+      );
+    } else {
+      setSelectedFields([fieldId]);
+    }
+  };
+
+  const selectAllFields = () => {
+    setSelectedFields(fields.map(f => f.id));
+  };
+
+  const clearSelection = () => {
+    setSelectedFields([]);
+    setSelectedField(null);
+  };
+
+  const handleDocumentUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (e.target?.result) {
+        setDocumentImage(e.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+    
+    toast({
+      title: "Document uploaded",
+      description: `${file.name} is being processed...`
+    });
+  };
+
+
+  const handleSaveClick = () => {
+    // Validate that template has fields before allowing save
+    if (fields.length === 0) {
+      toast({
+        title: "Cannot Save Empty Template",
+        description: "Please add at least one field before saving the template",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    setShowSaveDialog(true);
+  };
+
+  // Convert fields array to hierarchical structure
+  const convertFieldsToHierarchical = (fieldsArray: any[]) => {
+    if (!fieldsArray || !Array.isArray(fieldsArray)) {
+      console.warn('⚠️ convertFieldsToHierarchical: fieldsArray is not a valid array:', fieldsArray);
+      return {};
+    }
+    
+    const hierarchical: any = {};
+    
+    fieldsArray.forEach(field => {
+      if (!field) return; // Skip null/undefined fields
+      
+      const section = field.section || 'general';
+      const fieldName = field.label || field.name || 'unnamed_field';
+      
+      if (!hierarchical[section]) {
+        hierarchical[section] = {};
+      }
+      
+      if (field.type === 'table' && field.columns) {
+        // For tables, create array structure
+        hierarchical[section][fieldName] = [{}];
+        field.columns.forEach((col: string) => {
+          hierarchical[section][fieldName][0][col] = null;
+        });
+      } else {
+        // For regular fields, store as simple value
+        hierarchical[section][fieldName] = field.value || null;
+      }
+    });
+    
+    return hierarchical;
+  };
+
+  // Helper to format field names - removes page suffixes for display (but keeps original structure)
+  const formatFieldName = (fieldName: string): string => {
+    // Remove page number suffixes (e.g., "_page_1", " Page 1", etc.) for display only
+    const cleaned = fieldName
+      .replace(/_page_\d+$/i, '') // Remove "_page_1" at the end
+      .replace(/[_\s]page\s*\d+$/i, '') // Remove " page 1" or "_page1" at the end
+      .replace(/\s+page\s+\d+$/i, ''); // Remove " Page 1" at the end
+    
+    return cleaned
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, l => l.toUpperCase());
+  };
+
+  // Helper to remove page suffixes from keys in hierarchical data (for saving templates)
+  const removePageSuffixesFromKeys = (data: any): any => {
+    if (!data || typeof data !== 'object') {
+      return data;
+    }
+
+    if (Array.isArray(data)) {
+      return data.map(item => removePageSuffixesFromKeys(item));
+    }
+
+    const cleaned: any = {};
+    const keyOrder: string[] = [];
+    
+    // Preserve _keyOrder metadata if it exists
+    if ('_keyOrder' in data && Array.isArray(data._keyOrder)) {
+      keyOrder.push(...data._keyOrder.map((k: string) => 
+        k.replace(/_page_\d+$/i, '')
+         .replace(/[_\s]page\s*\d+$/i, '')
+         .replace(/\s+page\s+\d+$/i, '')
+      ));
+      cleaned._keyOrder = keyOrder;
+    }
+    
+    // Collect all metadata keys that should be preserved (columnOrder, fieldOrder)
+    const metadataKeys: string[] = [];
+    Object.keys(data).forEach(key => {
+      if (key.startsWith('_') && (key.endsWith('_columnOrder') || key.endsWith('_fieldOrder'))) {
+        metadataKeys.push(key);
+      }
+    });
+    
+    Object.entries(data).forEach(([key, value]) => {
+      // Preserve metadata keys (_keyOrder, _${sectionKey}_columnOrder, _${sectionKey}_fieldOrder)
+      if (key === '_keyOrder') {
+        return; // Already handled above
+      }
+      
+      // Preserve columnOrder and fieldOrder metadata keys
+      if (key.startsWith('_') && (key.endsWith('_columnOrder') || key.endsWith('_fieldOrder'))) {
+        // Remove page suffixes from the section key in metadata key name
+        // e.g., "_invoice_details_page_1_fieldOrder" -> "_invoice_details_fieldOrder"
+        const cleanedMetadataKey = key
+          .replace(/_page_\d+(_(?:columnOrder|fieldOrder))$/i, '$1')
+          .replace(/[_\s]page\s*\d+(_(?:columnOrder|fieldOrder))$/i, '$1');
+        cleaned[cleanedMetadataKey] = value; // Preserve order arrays as-is
+        return;
+      }
+      
+      // Skip other internal metadata keys
+      if (key.startsWith('_')) {
+        return;
+      }
+
+      // Remove page suffixes from key (e.g., "issuing_authority_page_1" -> "issuing_authority")
+      const cleanedKey = key
+        .replace(/_page_\d+$/i, '')
+        .replace(/[_\s]page\s*\d+$/i, '')
+        .replace(/\s+page\s+\d+$/i, '');
+
+      // Recursively clean nested objects and arrays
+      cleaned[cleanedKey] = removePageSuffixesFromKeys(value);
+    });
+
+    return cleaned;
+  };
+
+  // Convert hierarchical structure to fields array
+  const convertHierarchicalToFields = (hierarchicalData: any) => {
+    if (!hierarchicalData || typeof hierarchicalData !== 'object') {
+      console.warn('⚠️ convertHierarchicalToFields: hierarchicalData is not a valid object:', hierarchicalData);
+      return [];
+    }
+    
+    const fieldsArray: any[] = [];
+    let fieldId = 1;
+    
+    Object.entries(hierarchicalData).forEach(([sectionKey, sectionData]: [string, any]) => {
+      // Skip internal metadata keys
+      if (sectionKey.startsWith('_')) return;
+      
+      if (typeof sectionData === 'object' && sectionData !== null) {
+        // Check if it's a typed field (new LLM format with _type)
+        if ('_type' in sectionData && sectionData._type !== 'table') {
+          // Handle typed fields - skip "type" and "value" sub-fields, use the main field
+          const field = {
+            id: `field-${fieldId++}`,
+            type: sectionData._type || 'text',
+            label: formatFieldName(sectionKey), // Strip page suffix from display
+            value: '',
+            section: 'general',
+            x: 100 + ((fieldId % 4) * 220),
+            y: 100 + Math.floor(fieldId / 4) * 60,
+            width: 200,
+            height: 40,
+            required: false,
+            suggested: true,
+            confidence: 0.85,
+            options: Array.isArray(sectionData.options) ? sectionData.options : []
+          };
+          fieldsArray.push(field);
+        } else if (Array.isArray(sectionData)) {
+          // Table structure
+          const tableField = {
+            id: `field-${fieldId++}`,
+            type: 'table',
+            label: formatFieldName(sectionKey), // Strip page suffix from display
+            value: '',
+            section: sectionKey,
+            x: 100,
+            y: 100 + (fieldId * 60),
+            width: 300,
+            height: 120,
+            columns: sectionData.length > 0 ? Object.keys(sectionData[0]) : [],
+            required: false,
+            suggested: true,
+            confidence: 0.85
+          };
+          fieldsArray.push(tableField);
+        } else {
+          // Nested object structure - check if it contains "type" and "value" fields (old format)
+          const hasTypeValueStructure = 'type' in sectionData && 'value' in sectionData;
+          
+          if (hasTypeValueStructure) {
+            // Old format with separate "type" and "value" fields - skip these, they're just metadata
+            // This field should have been handled at parent level
+            return;
+          }
+          
+          // Regular nested object structure
+          Object.entries(sectionData).forEach(([fieldKey, fieldValue]: [string, any]) => {
+            // Skip internal metadata and "type"/"value" metadata fields
+            if (fieldKey.startsWith('_') || fieldKey === 'type' || fieldKey === 'value') return;
+            
+            // Check if nested value is a typed field
+            if (typeof fieldValue === 'object' && fieldValue !== null && '_type' in fieldValue) {
+              const field = {
+                id: `field-${fieldId++}`,
+                type: fieldValue._type || 'text',
+                label: formatFieldName(fieldKey), // Strip page suffix from display
+                value: '',
+                section: sectionKey,
+                x: 100 + ((fieldId % 4) * 220),
+                y: 100 + Math.floor(fieldId / 4) * 60,
+                width: 200,
+                height: 40,
+                required: false,
+                suggested: true,
+                confidence: 0.85,
+                options: Array.isArray(fieldValue.options) ? fieldValue.options : []
+              };
+              fieldsArray.push(field);
+            } else {
+              const field = {
+                id: `field-${fieldId++}`,
+                type: 'text',
+                label: formatFieldName(fieldKey), // Strip page suffix from display
+                value: fieldValue || '',
+                section: sectionKey,
+                x: 100 + ((fieldId % 4) * 220),
+                y: 100 + Math.floor(fieldId / 4) * 60,
+                width: 200,
+                height: 40,
+                required: false,
+                suggested: true,
+                confidence: 0.85
+              };
+              fieldsArray.push(field);
+            }
+          });
+        }
+      } else {
+        // Simple field
+        const field = {
+          id: `field-${fieldId++}`,
+          type: 'text',
+          label: formatFieldName(sectionKey), // Strip page suffix from display
+          value: sectionData || '',
+          section: 'general',
+          x: 100 + ((fieldId % 4) * 220),
+          y: 100 + Math.floor(fieldId / 4) * 60,
+          width: 200,
+          height: 40,
+          required: false,
+          suggested: true,
+          confidence: 0.85
+        };
+        fieldsArray.push(field);
+      }
+    });
+    
+    return fieldsArray;
+  };
+
+  const saveTemplate = async () => {
+    // Only use preserved hierarchical data from LLM extraction (not from loaded template)
+    // When editing a template, always regenerate structure from current fields
+    // This ensures manual edits are properly saved to metadata
+    const finalPreservedData = preservedHierarchicalData || undefined;
+    
+    // Ensure fields is defined and is an array
+    if (!fields || !Array.isArray(fields)) {
+      console.error('❌ Fields is not defined or not an array:', fields);
+      toast({
+        title: "Error",
+        description: "No fields found to save. Please add some fields first.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    // Convert from sections and fields (manually created templates)
+    // This preserves the section organization when template is created manually
+    const convertSectionsToHierarchical = (sectionsArray: any[], fieldsArray: any[]) => {
+      const hierarchical: any = {};
+      const keyOrder: string[] = [];
+      
+      // Sort sections by order to preserve sequence
+      const sortedSections = [...sectionsArray].sort((a, b) => (a.order || 0) - (b.order || 0));
+      
+      // Group fields by their section
+      const fieldsBySection = new Map<string, any[]>();
+      fieldsArray.forEach((field) => {
+        if (!field) return;
+        const sectionId = field.section || 'general';
+        if (!fieldsBySection.has(sectionId)) {
+          fieldsBySection.set(sectionId, []);
+        }
+        fieldsBySection.get(sectionId)!.push(field);
+      });
+      
+      sortedSections.forEach((section) => {
+        if (!section || !section.id) return;
+        
+        const sectionKey = section.id.toLowerCase().replace(/\s+/g, '_');
+        const sectionFields = fieldsBySection.get(section.id) || [];
+        
+        // Only add section if it has fields
+        if (sectionFields.length > 0) {
+          keyOrder.push(sectionKey);
+          hierarchical[sectionKey] = {};
+          const fieldOrder: string[] = [];
+          
+          // Process fields in this section
+          // Track field names to handle duplicates
+          const seenFieldNames = new Map<string, number>();
+          
+          sectionFields.forEach((field: any) => {
+            if (!field) return;
+            
+            let fieldName = (field.label || field.name || 'unnamed_field').toLowerCase().replace(/\s+/g, '_');
+            
+            // Handle duplicate field names by appending a number
+            if (seenFieldNames.has(fieldName)) {
+              const count = (seenFieldNames.get(fieldName) || 0) + 1;
+              seenFieldNames.set(fieldName, count);
+              fieldName = `${fieldName}_${count}`;
+            } else {
+              seenFieldNames.set(fieldName, 1);
+            }
+            
+            fieldOrder.push(fieldName);
+            
+            if (field.type === 'table' && field.columns && Array.isArray(field.columns) && field.columns.length > 0) {
+              // For tables, check if it's a grouped table with nested structure
+              if (field.isGroupedTable && field.groupedHeaders && Array.isArray(field.groupedHeaders)) {
+                // Create nested structure for grouped tables
+                hierarchical[sectionKey][fieldName] = [{}];
+                field.groupedHeaders.forEach((groupHeader: any) => {
+                  if (groupHeader.subHeaders && Array.isArray(groupHeader.subHeaders) && groupHeader.subHeaders.length > 0) {
+                    // Nested object structure (e.g., cess: { tax_percent: null, amount: null })
+                    const groupHeaderKey = groupHeader.name.toLowerCase().replace(/\s+/g, '_');
+                    if (!hierarchical[sectionKey][fieldName][0][groupHeaderKey]) {
+                      hierarchical[sectionKey][fieldName][0][groupHeaderKey] = {};
+                    }
+                    groupHeader.subHeaders.forEach((subHeader: string) => {
+                      const subHeaderKey = subHeader.toLowerCase().replace(/\s+/g, '_');
+                      hierarchical[sectionKey][fieldName][0][groupHeaderKey][subHeaderKey] = null;
+                    });
+                  } else if (groupHeader.colspan === 1) {
+                    // Single column header (no sub-headers)
+                    const singleColKey = groupHeader.name.toLowerCase().replace(/\s+/g, '_');
+                    hierarchical[sectionKey][fieldName][0][singleColKey] = null;
+                  }
+                });
+                // Add regular columns that aren't part of grouped headers
+                if (field.columns && Array.isArray(field.columns)) {
+                  field.columns.forEach((col: string) => {
+                    const colKey = col.toLowerCase().replace(/\s+/g, '_');
+                    // Only add if not already added as part of grouped headers
+                    const flatColName = colKey.includes('_') ? colKey : colKey;
+                    if (!hierarchical[sectionKey][fieldName][0][flatColName] && 
+                        !Object.values(hierarchical[sectionKey][fieldName][0]).some((val: any) => 
+                          typeof val === 'object' && val !== null && val !== null && Object.keys(val).some(k => k === colKey || k.endsWith(`_${colKey}`))
+                        )) {
+                      // Check if this column is already represented in nested structure
+                      let alreadyExists = false;
+                      Object.values(hierarchical[sectionKey][fieldName][0]).forEach((val: any) => {
+                        if (typeof val === 'object' && val !== null) {
+                          Object.keys(val).forEach(k => {
+                            if (k === colKey || colKey.includes(k) || k.includes(colKey)) {
+                              alreadyExists = true;
+                            }
+                          });
+                        }
+                      });
+                      if (!alreadyExists) {
+                        hierarchical[sectionKey][fieldName][0][flatColName] = null;
+                      }
+                    }
+                  });
+                }
+              } else {
+                // Regular table - create array structure with columns
+                hierarchical[sectionKey][fieldName] = [{}];
+                field.columns.forEach((col: string) => {
+                  const colKey = col.toLowerCase().replace(/\s+/g, '_');
+                  hierarchical[sectionKey][fieldName][0][colKey] = null;
+                });
+              }
+            } else {
+              // For regular fields, store as null (template structure)
+              hierarchical[sectionKey][fieldName] = null;
+            }
+          });
+          
+          // Add field order metadata if we have fields
+          if (fieldOrder.length > 0) {
+            hierarchical[`_${sectionKey}_fieldOrder`] = fieldOrder;
+          }
+        }
+      });
+      
+      // Add key order metadata
+      if (keyOrder.length > 0) {
+        hierarchical['_keyOrder'] = keyOrder;
+      }
+      
+      return hierarchical;
+    };
+    
+    // Build hierarchical structure: prioritize preserved data, then sections, then fields
+    let finalHierarchicalStructure;
+    if (finalPreservedData) {
+      finalHierarchicalStructure = finalPreservedData;
+    } else if (fields && fields.length > 0) {
+      // If we have fields, try to convert from sections first, then fallback to fields
+      if (sections && sections.length > 0) {
+        // Convert from sections and fields (manually created templates)
+        const hierarchicalFromSections = convertSectionsToHierarchical(sections, fields);
+        // Only use sections-based conversion if it actually produced fields
+        if (Object.keys(hierarchicalFromSections).length > 0 && 
+            !Object.values(hierarchicalFromSections).every((val: any) => 
+              typeof val === 'object' && val !== null && Object.keys(val).length === 0
+            )) {
+          finalHierarchicalStructure = hierarchicalFromSections;
+        } else {
+          // Sections conversion produced empty structure, fallback to fields conversion
+          finalHierarchicalStructure = convertFieldsToHierarchical(fields);
+        }
+      } else {
+        // No sections, convert directly from fields array
+        finalHierarchicalStructure = convertFieldsToHierarchical(fields);
+      }
+    } else {
+      // No fields at all - return empty structure
+      finalHierarchicalStructure = {};
+    }
+    
+    // Remove page suffixes from keys when saving template (for clean template structure)
+    const cleanedHierarchicalStructure = removePageSuffixesFromKeys(finalHierarchicalStructure);
+    
+    // Build metadata object ensuring template_structure preserves LLM order (without page suffixes)
+    const existingMetadata = template.metadata || {};
+    const finalMetadata: any = {
+      ...existingMetadata,
+      // Store template_structure without page suffixes for clean template storage
+      template_structure: cleanedHierarchicalStructure
+    };
+    
+    // Only include document_image if it has a value (don't set undefined, as JSON will strip it)
+    const documentImageValue = documentImage || existingMetadata.document_image || existingMetadata.sample_document_url;
+    if (documentImageValue) {
+      finalMetadata.document_image = documentImageValue;
+    }
+    
+    const templateData = {
+      name: templateMetadata.name,
+      description: templateMetadata.description,
+      document_type: templateMetadata.document_type,
+      fields: fields, // Keep fields array for compatibility with useTemplateManager
+      version: templateMetadata.version,
+      status: templateMetadata.status,
+      is_public: templateMetadata.is_public,
+      metadata: finalMetadata  // Explicitly include metadata
+    };
+
+    // Track template usage and learning
+    if (!template.id.startsWith('new-') && !template.id.startsWith('temp-')) {
+      try {
+        const learningService = TemplateLearningService.getInstance();
+        await learningService.logTemplateUsage(template.id, 'template_saved', true, 1.0);
+      } catch (error) {
+        console.error('Failed to log template usage:', error);
+      }
+    }
+
+    if (onSave) {
+      onSave(templateData);
+    } else {
+      toast({
+        title: "Template saved",
+        description: `${template.name} has been updated successfully`,
+      });
+    }
+  };
+
+  const testExtraction = async () => {
+    if (!documentImage) {
+      toast({
+        title: "No document available",
+        description: "Upload a document or open a template with a sample document first.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      setIsExtracting(true);
+      toast({
+        title: "Running Field Detection",
+        description: "Analyzing document and detecting form fields...",
+      });
+
+      // Validate documentImage is a string (data URL)
+      if (typeof documentImage !== 'string') {
+        throw new Error('Document image is not in the correct format. Please upload the document again.');
+      }
+
+      if (!documentImage.startsWith('data:')) {
+        throw new Error('Document image is not a valid data URL. Please upload the document again.');
+      }
+
+      const service = DocumentAnalysisService.getInstance();
+      const result = await service.analyzeDocument(
+        documentImage,
+        'field_detection',
+        template.name || 'document',
+        null
+      );
+
+      // For field_detection task, we don't need extractedText
+      // Only show extraction text if we actually have text content
+      const text = result?.extractedText || '';
+      if (text) {
+        setExtractionText(text);
+        setShowExtraction(true);
+      }
+
+      // Auto-create fields based on detected fields
+      let autoFields: any[] = [];
+      let detectedSections: any[] = [];
+      
+      // First, check if we have hierarchical_data from backend (prioritize this)
+      // Note: result structure is { success, task, result: { hierarchical_data, fields, ... }, ... }
+      const hierarchicalData = result?.result?.hierarchical_data;
+      console.log('🔍 Checking for hierarchical_data in result:', {
+        hasResult: !!result,
+        hasResultResult: !!result?.result,
+        hasHierarchicalData: !!hierarchicalData,
+        hierarchicalDataType: typeof hierarchicalData,
+        hierarchicalDataValue: hierarchicalData,
+        resultKeys: result ? Object.keys(result) : [],
+        resultResultKeys: result?.result ? Object.keys(result.result) : []
+      });
+      
+      if (hierarchicalData && typeof hierarchicalData === 'object' && !Array.isArray(hierarchicalData)) {
+        console.log('✅ Using hierarchical_data from backend:', hierarchicalData);
+        
+        // Get key order from metadata to preserve section sequence
+        const keyOrder = (hierarchicalData as any)?._keyOrder;
+        const orderedKeys: string[] = [];
+        
+        if (Array.isArray(keyOrder) && keyOrder.length > 0) {
+          // Use _keyOrder to determine section order
+          orderedKeys.push(...keyOrder);
+        }
+        
+        // Convert hierarchical_data to sections and fields
+        const sectionMap = new Map();
+        let fieldIndex = 0;
+        const baseTimestamp = Date.now();
+        
+        // First pass: collect all keys (in order if _keyOrder exists, otherwise in natural order)
+        const allKeys = orderedKeys.length > 0 
+          ? [...orderedKeys, ...Object.keys(hierarchicalData).filter(k => !k.startsWith('_') && !orderedKeys.includes(k))]
+          : Object.keys(hierarchicalData).filter(k => !k.startsWith('_'));
+        
+        // Process keys in order
+        allKeys.forEach((key, orderIndex) => {
+          // Skip if key doesn't exist in hierarchicalData or is metadata
+          if (!(key in hierarchicalData) || key.startsWith('_')) return;
+          
+          const value = hierarchicalData[key];
+          
+          // Format section name - strip page suffixes for display
+          const sectionName = formatFieldName(key);
+          const sectionId = key.toLowerCase();
+          
+          // Create section if it doesn't exist, using order from _keyOrder
+          if (!sectionMap.has(sectionId)) {
+            sectionMap.set(sectionId, {
+              id: sectionId,
+              name: sectionName,
+              order: orderedKeys.length > 0 ? orderIndex : sectionMap.size
+            });
+          }
+          
+          // Process the value based on its type
+          // Check for null first (typeof null === 'object' in JavaScript, which is a quirk)
+          if (value === null) {
+            // Simple field with null value
+            console.log(`🔍 Creating simple field from null: ${key}`);
+            autoFields.push({
+              id: `auto-field-${baseTimestamp}-${fieldIndex}`,
+              type: 'text',
+              label: sectionName,
+              required: false,
+              x: 100 + (fieldIndex % 4) * 220,
+              y: 100 + Math.floor(fieldIndex / 4) * 60,
+              width: 200,
+              height: 40,
+              confidence: 0.85,
+              value: '',
+              suggested: true,
+              section: sectionId
+            });
+            fieldIndex++;
+          } else if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object') {
+            // This is a table structure
+            const firstRow = value[0];
+            
+            // Check for column order metadata (preserves LLM/database order)
+            const columnOrderKey = `_${key}_columnOrder`;
+            const columnOrder = (hierarchicalData as any)?.[columnOrderKey];
+            const tableColumns = Array.isArray(columnOrder) && columnOrder.length > 0 
+              ? columnOrder.filter((col: string) => col in firstRow) // Only include columns that exist
+              : Object.keys(firstRow); // Fallback to object keys (preserves insertion order)
+            
+            // Ensure all columns from firstRow are included (some might be missing from metadata)
+            const allColumns = new Set(tableColumns);
+            Object.keys(firstRow).forEach(col => allColumns.add(col));
+            const orderedColumns = Array.from(allColumns);
+            
+            // Check for nested objects in table rows (for grouped headers)
+            const hasNestedObjects = Object.values(firstRow).some(val => 
+              typeof val === 'object' && val !== null && !Array.isArray(val)
+            );
+            
+            let groupedHeaders: Array<{ name: string; colspan: number; subHeaders: string[] }> | undefined;
+            let flatColumns: string[] | undefined;
+            
+            if (hasNestedObjects) {
+              // Create grouped headers structure - preserve column order
+              groupedHeaders = [];
+              flatColumns = [];
+              
+              // Use ordered columns to preserve original order
+              orderedColumns.forEach((colKey) => {
+                const colValue = firstRow[colKey];
+                if (typeof colValue === 'object' && colValue !== null && !Array.isArray(colValue)) {
+                  // Nested object - create grouped header
+                  // Preserve sub-key order from object (Object.keys preserves insertion order)
+                  const subKeys = Object.keys(colValue);
+                  groupedHeaders!.push({
+                    name: colKey,
+                    colspan: subKeys.length,
+                    subHeaders: subKeys
+                  });
+                  // Add flat columns for sub-keys in order
+                  subKeys.forEach(subKey => {
+                    flatColumns!.push(`${colKey}_${subKey}`);
+                  });
+                } else {
+                  // Regular column
+                  flatColumns!.push(colKey);
+                  groupedHeaders!.push({
+                    name: colKey,
+                    colspan: 1,
+                    subHeaders: []
+                  });
+                }
+              });
+            }
+            
+            const tableField = {
+              id: `auto-field-${baseTimestamp}-${fieldIndex}`,
+              type: 'table' as const,
+              label: sectionName,
+              required: false,
+              x: 100 + (fieldIndex % 4) * 220,
+              y: 100 + Math.floor(fieldIndex / 4) * 60,
+              width: 300,
+              height: 120,
+              confidence: 0.85,
+              value: '',
+              suggested: true,
+              section: sectionId,
+              columns: hasNestedObjects ? flatColumns! : orderedColumns,
+              isGroupedTable: hasNestedObjects,
+              groupedHeaders: hasNestedObjects ? groupedHeaders : undefined
+            };
+            
+            // Log for debugging (can be removed later)
+            if (hasNestedObjects && groupedHeaders) {
+              console.log(`✅ Created grouped table field "${sectionName}":`, {
+                isGroupedTable: tableField.isGroupedTable,
+                groupedHeadersCount: groupedHeaders.length,
+                flatColumnsCount: flatColumns?.length
+              });
+            }
+            
+            autoFields.push(tableField);
+            fieldIndex++;
+          } else if (typeof value === 'object' && !Array.isArray(value)) {
+            // This is a nested object - process each property
+            // Get field order from metadata to preserve field sequence within section
+            const fieldOrderKey = `_${key}_fieldOrder`;
+            const fieldOrder = (hierarchicalData as any)?.[fieldOrderKey];
+            const orderedFieldKeys: string[] = [];
+            
+            if (Array.isArray(fieldOrder) && fieldOrder.length > 0) {
+              // Use _${key}_fieldOrder to determine field order
+              orderedFieldKeys.push(...fieldOrder);
+            }
+            
+            // Get all field keys (in order if _${key}_fieldOrder exists, otherwise in natural order)
+            const allFieldKeys = orderedFieldKeys.length > 0
+              ? [...orderedFieldKeys, ...Object.keys(value).filter(k => !k.startsWith('_') && !orderedFieldKeys.includes(k))]
+              : Object.keys(value).filter(k => !k.startsWith('_'));
+            
+            if (allFieldKeys.length === 0) {
+              // Empty object - skip this section
+              console.log(`⚠️ Empty object for ${key}, skipping`);
+              return;
+            }
+            
+            // Process fields in order
+            allFieldKeys.forEach((nestedKey) => {
+              // Skip if key doesn't exist in value
+              if (!(nestedKey in value)) return;
+              
+              const nestedValue = value[nestedKey];
+              // Removed verbose logging
+              
+              if (Array.isArray(nestedValue) && nestedValue.length > 0 && typeof nestedValue[0] === 'object') {
+                // Nested table
+                const firstRow = nestedValue[0];
+                
+                // Check for column order metadata for nested table
+                const nestedColumnOrderKey = `_${key}_${nestedKey}_columnOrder`;
+                const nestedColumnOrder = (hierarchicalData as any)?.[nestedColumnOrderKey];
+                const tableColumns = Array.isArray(nestedColumnOrder) && nestedColumnOrder.length > 0
+                  ? nestedColumnOrder.filter((col: string) => col in firstRow)
+                  : Object.keys(firstRow); // Fallback to object keys
+                
+                // Ensure all columns are included
+                const allColumns = new Set(tableColumns);
+                Object.keys(firstRow).forEach(col => allColumns.add(col));
+                const orderedColumns = Array.from(allColumns);
+                
+                // Check for nested objects in table rows (for grouped headers)
+                const hasNestedObjects = Object.values(firstRow).some(val => 
+                  typeof val === 'object' && val !== null && !Array.isArray(val)
+                );
+                
+                let groupedHeaders: Array<{ name: string; colspan: number; subHeaders: string[] }> | undefined;
+                let flatColumns: string[] | undefined;
+                
+                if (hasNestedObjects) {
+                  // Create grouped headers structure - preserve column order
+                  groupedHeaders = [];
+                  flatColumns = [];
+                  
+                  // Use ordered columns to preserve original order
+                  orderedColumns.forEach((colKey) => {
+                    const colValue = firstRow[colKey];
+                    if (typeof colValue === 'object' && colValue !== null && !Array.isArray(colValue)) {
+                      // Nested object - create grouped header
+                      // Preserve sub-key order from object
+                      const subKeys = Object.keys(colValue);
+                      groupedHeaders!.push({
+                        name: colKey,
+                        colspan: subKeys.length,
+                        subHeaders: subKeys
+                      });
+                      // Add flat columns for sub-keys in order
+                      subKeys.forEach(subKey => {
+                        flatColumns!.push(`${colKey}_${subKey}`);
+                      });
+                    } else {
+                      // Regular column
+                      flatColumns!.push(colKey);
+                      groupedHeaders!.push({
+                        name: colKey,
+                        colspan: 1,
+                        subHeaders: []
+                      });
+                    }
+                  });
+                }
+                
+                const nestedTableField = {
+                  id: `auto-field-${baseTimestamp}-${fieldIndex}`,
+                  type: 'table' as const,
+                  label: formatFieldName(nestedKey),
+                  required: false,
+                  x: 100 + (fieldIndex % 4) * 220,
+                  y: 100 + Math.floor(fieldIndex / 4) * 60,
+                  width: 300,
+                  height: 120,
+                  confidence: 0.85,
+                  value: '',
+                  suggested: true,
+                  section: sectionId,
+                  columns: hasNestedObjects ? flatColumns! : orderedColumns,
+                  isGroupedTable: hasNestedObjects,
+                  groupedHeaders: hasNestedObjects ? groupedHeaders : undefined
+                };
+                
+                // Log for debugging (can be removed later)
+                if (hasNestedObjects && groupedHeaders) {
+                  console.log(`✅ Created nested grouped table field "${formatFieldName(nestedKey)}":`, {
+                    isGroupedTable: nestedTableField.isGroupedTable,
+                    groupedHeadersCount: groupedHeaders.length,
+                    flatColumnsCount: flatColumns?.length
+                  });
+                }
+                
+                autoFields.push(nestedTableField);
+                fieldIndex++;
+              } else {
+                // Skip "type" and "value" metadata fields - they're not actual form fields
+                if (nestedKey === 'type' || nestedKey === 'value') {
+                  console.log(`  ⏭️ Skipping metadata field: ${nestedKey}`);
+                  return;
+                }
+                
+                // Check if nested value is a typed field (new LLM format)
+                if (typeof nestedValue === 'object' && nestedValue !== null && '_type' in nestedValue) {
+                  // Handle typed field
+                  const fieldLabel = formatFieldName(nestedKey);
+                  // Removed verbose logging
+                  autoFields.push({
+                    id: `auto-field-${baseTimestamp}-${fieldIndex}`,
+                    type: nestedValue._type || 'text',
+                    label: fieldLabel,
+                    required: false,
+                    x: 100 + (fieldIndex % 4) * 220,
+                    y: 100 + Math.floor(fieldIndex / 4) * 60,
+                    width: 200,
+                    height: 40,
+                    confidence: 0.85,
+                    value: '',
+                    suggested: true,
+                    section: sectionId,
+                    options: Array.isArray(nestedValue.options) ? nestedValue.options : []
+                  });
+                  fieldIndex++;
+                } else {
+                  // Regular field (handles null, string, number, etc.)
+                  const fieldLabel = formatFieldName(nestedKey);
+                  // Removed verbose logging
+                  autoFields.push({
+                    id: `auto-field-${baseTimestamp}-${fieldIndex}`,
+                    type: 'text',
+                    label: fieldLabel,
+                    required: false,
+                    x: 100 + (fieldIndex % 4) * 220,
+                    y: 100 + Math.floor(fieldIndex / 4) * 60,
+                    width: 200,
+                    height: 40,
+                    confidence: 0.85,
+                    value: '',
+                    suggested: true,
+                    section: sectionId
+                  });
+                  fieldIndex++;
+                }
+              }
+            });
+          } else {
+            // Check if it's a typed field at top level
+            if (typeof value === 'object' && value !== null && '_type' in value) {
+              const fieldLabel = formatFieldName(key);
+              console.log(`🔍 Creating top-level typed field: ${fieldLabel} (type: ${value._type})`);
+              autoFields.push({
+                id: `auto-field-${baseTimestamp}-${fieldIndex}`,
+                type: value._type || 'text',
+                label: fieldLabel,
+                required: false,
+                x: 100 + (fieldIndex % 4) * 220,
+                y: 100 + Math.floor(fieldIndex / 4) * 60,
+                width: 200,
+                height: 40,
+                confidence: 0.85,
+                value: '',
+                suggested: true,
+                section: sectionId,
+                options: Array.isArray(value.options) ? value.options : []
+              });
+              fieldIndex++;
+            } else {
+              // Primitive values (string, number, boolean, etc.) - though unlikely in hierarchical_data
+              console.log(`🔍 Creating simple field from primitive: ${key}, value: ${value}, type: ${typeof value}`);
+              autoFields.push({
+                id: `auto-field-${baseTimestamp}-${fieldIndex}`,
+                type: 'text',
+                label: sectionName,
+                required: false,
+                x: 100 + (fieldIndex % 4) * 220,
+                y: 100 + Math.floor(fieldIndex / 4) * 60,
+                width: 200,
+                height: 40,
+                confidence: 0.85,
+                value: '',
+                suggested: true,
+                section: sectionId
+              });
+              fieldIndex++;
+            }
+          }
+        });
+        
+        // Convert sectionMap to array and sort by order (preserves LLM order from _keyOrder)
+        detectedSections = Array.from(sectionMap.values()).sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+        // Removed verbose logging
+      }
+      // Check if we have fields array from backend (fallback)
+      else if (result?.result?.fields && Array.isArray(result.result.fields) && result.result.fields.length > 0) {
+        const fieldsFromBackend = result.result.fields;
+        console.log('🔍 Using fields array from backend:', fieldsFromBackend.length, 'fields');
+        console.log('🔍 First few fields from backend:', fieldsFromBackend.slice(0, 3));
+        autoFields = fieldsFromBackend.map((field: any, index: number) => {
+          console.log(`🔍 Field ${index}:`, field.label, 'Section:', field.section);
+          return {
+          id: `auto-field-${Date.now()}-${index}`,
+          type: field.type || 'text',
+          label: field.label || `Field ${index + 1}`,
+          required: field.required ?? false,
+          x: 100 + (index % 4) * 220, // 4-column layout
+          y: 100 + Math.floor(index / 4) * 60, // Row spacing
+          width: 200,
+          height: 40,
+          confidence: field.confidence || 0.8,
+          value: '', // Template fields should not have default values
+            suggested: true, // Mark as auto-generated
+            section: field.section || 'general'
+          };
+        });
+      }
+      // Check if we have the new hierarchical structure (fallback)
+      else if (result?.result?.sections && Array.isArray(result.result.sections)) {
+        // New hierarchical structure - extract fields from sections
+        let fieldIndex = 0;
+        const sections = result.result.sections;
+        sections.forEach((section: any) => {
+          if (section.fields && Array.isArray(section.fields)) {
+            section.fields.forEach((field: any) => {
+              autoFields.push({
+                id: `auto-field-${Date.now()}-${fieldIndex}`,
+                type: field.type || 'text',
+                label: field.label, // Use original field label without section prefix
+                required: field.required ?? false,
+                x: 100 + (fieldIndex % 4) * 220, // 4-column layout
+                y: 100 + Math.floor(fieldIndex / 4) * 60, // Row spacing
+                width: 200,
+                height: 40,
+                confidence: 0.85,
+                value: '', // Template fields should not have default values
+                suggested: true, // Mark as auto-generated
+                section: section.heading || 'General'
+              });
+              fieldIndex++;
+            });
+          }
+        });
+        
+        // Add table fields
+        if (result.result.tables && Array.isArray(result.result.tables)) {
+          result.result.tables.forEach((table: any) => {
+            autoFields.push({
+              id: `auto-field-${Date.now()}-${fieldIndex}`,
+              type: 'table',
+              label: table.heading || 'Table',
+              required: false,
+              x: 100 + (fieldIndex % 4) * 220,
+              y: 100 + Math.floor(fieldIndex / 4) * 60,
+              width: 200,
+              height: 40,
+              confidence: 0.85,
+              value: '',
+              suggested: true,
+              section: 'Tables',
+              columns: table.columns || []
+            });
+            fieldIndex++;
+          });
+        }
+        
+        // Add signature fields
+        if (result.result.signatures && Array.isArray(result.result.signatures)) {
+          result.result.signatures.forEach((signature: any) => {
+            autoFields.push({
+              id: `auto-field-${Date.now()}-${fieldIndex}`,
+              type: 'signature',
+              label: signature.label || 'Signature',
+              required: false,
+              x: 100 + (fieldIndex % 4) * 220,
+              y: 100 + Math.floor(fieldIndex / 4) * 60,
+              width: 200,
+              height: 40,
+              confidence: 0.85,
+              value: '',
+              suggested: true,
+              section: 'Signatures'
+            });
+            fieldIndex++;
+          });
+        }
+      }
+      
+      // Removed verbose logging
+      
+      if (autoFields.length > 0) {
+        // Removed verbose logging
+        setFields(autoFields);
+        
+        // Set sections if we detected them from hierarchical_data
+        if (detectedSections.length > 0) {
+          // Removed verbose logging
+          setSections(detectedSections);
+          // Removed verbose logging
+        }
+        
+        toast({
+          title: "Auto-field creation complete",
+          description: `Created ${autoFields.length} fields automatically from the document`,
+        });
+      } else {
+        console.log('⚠️ No autoFields created, falling back to basic field extraction');
+        // If no fields detected, create basic text fields from key-value pairs
+        const textLines = text.split('\n').filter(line => line.trim().includes(':'));
+        const basicFields = textLines.slice(0, 12).map((line, index) => {
+          const [key] = line.split(':');
+          return {
+            id: `auto-field-${Date.now()}-${index}`,
+            type: 'text',
+            label: key?.trim() || `Field ${index + 1}`,
+            required: false,
+            x: 100 + (index % 4) * 220, // 4-column layout
+            y: 100 + Math.floor(index / 4) * 60, // Row spacing
+            width: 200,
+            height: 40,
+            confidence: 0.8,
+            suggested: true
+          };
+        });
+
+        if (basicFields.length > 0) {
+          setFields(basicFields);
+          toast({
+            title: "Basic field creation complete",
+            description: `Created ${basicFields.length} basic fields from document text`,
+          });
+        } else {
+          toast({
+            title: "No fields detected",
+            description: "Could not automatically detect fields. You can add them manually.",
+            variant: "destructive"
+          });
+        }
+      }
+
+        // Store hierarchical data in template metadata if available
+        // IMPORTANT: Store directly from LLM response to preserve exact field order
+        const hierarchicalDataToStore = result?.result?.hierarchical_data;
+        if (hierarchicalDataToStore) {
+          // Store hierarchical_data and template_structure directly from LLM response
+          // This preserves the exact order of fields as returned by the LLM
+          setTemplateMetadata(prev => ({
+            ...prev,
+            metadata: {
+              ...prev.metadata,
+              hierarchical_data: hierarchicalDataToStore,
+              // Store the complete structure as returned by LLM in exact order
+              template_structure: hierarchicalDataToStore
+            }
+          }));
+          
+          // Store hierarchical data directly to preserve LLM order
+          setPreservedHierarchicalData(hierarchicalDataToStore);
+      }
+
+      toast({
+        title: "Field detection complete",
+        description: "Document analysis and field detection completed successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Extraction failed",
+        description: error instanceof Error ? error.message : 'Unknown error occurred',
+        variant: "destructive"
+      });
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+
+  const getFieldIcon = (type: TemplateField['type']) => {
+    const iconMap = { 
+      text: Type, 
+      email: Mail, 
+      phone: Phone, 
+      date: Calendar, 
+      number: Hash, 
+      checkbox: CheckSquare, 
+      select: Square,
+      table: Square,  // Use Square icon for tables
+      signature: Square  // Use Square icon for signatures
+    };
+    const Icon = iconMap[type] || Type;
+    return <Icon className="h-4 w-4" />;
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <div className="bg-card border-b border-border p-4 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" onClick={onClose}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Templates
+            </Button>
+            <div>
+              <h1 className="text-xl font-semibold">{template.name}</h1>
+              <p className="text-sm text-muted-foreground">Version {template.version}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <Button variant="outline" onClick={testExtraction} disabled={isExtracting}>
+              <Play className="mr-2 h-4 w-4" />
+              {isExtracting ? 'Analyzing...' : 'Auto Detect Fields'}
+            </Button>
+            <Button variant="hero" onClick={handleSaveClick}>
+              <Save className="mr-2 h-4 w-4" />
+              Save Template
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Enhanced Toolbar */}
+      <div className={`bg-muted/30 border-b border-border p-3 sticky top-[73px] z-40 transition-all duration-300 ${
+        showToolbar ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0'
+      }`}>
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              {/* View Controls */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={showGrid ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setShowGrid(!showGrid)}
+                >
+                  <Grid3X3 className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant={showFieldLabels ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setShowFieldLabels(!showFieldLabels)}
+                >
+                  {showFieldLabels ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                </Button>
+              </div>
+
+              <Separator orientation="vertical" className="h-6" />
+
+
+              {/* Auto Arrange */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                onClick={autoArrangeFields}
+                disabled={fields.length === 0}
+                title="Auto Arrange Fields"
+              >
+                <Wand2 className="mr-2 h-4 w-4" />
+                Auto Arrange
+                </Button>
+
+              {/* Section Management */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                onClick={() => setShowSectionDialog(true)}
+                title="Add New Section"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Add Section
+                </Button>
+              </div>
+
+            <div className="flex items-center gap-4">
+              {/* Section Selection */}
+              <div className="flex items-center gap-2">
+                <Label htmlFor="section-select" className="text-sm font-medium">
+                  Section:
+                </Label>
+                <Select value={selectedSection} onValueChange={setSelectedSection}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sections.map(section => (
+                      <SelectItem key={section.id} value={section.id}>
+                        {section.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Field Creation Buttons */}
+              <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                  onClick={addTableField}
+                  title="Add Table Field"
+              >
+                  <Table className="mr-2 h-4 w-4" />
+                  Add Table
+              </Button>
+            </div>
+
+              {/* Multi-select Toggle */}
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={multiSelect}
+                  onCheckedChange={setMultiSelect}
+                  id="multi-select"
+                />
+                <Label htmlFor="multi-select" className="text-sm">
+                  Multi-select
+                </Label>
+              </div>
+
+              {/* Selection Actions */}
+              {selectedFields.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">
+                    {selectedFields.length} selected
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={clearSelection}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              )}
+
+              {/* Settings */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={snapToGrid}
+                    onCheckedChange={setSnapToGrid}
+                    id="snap-grid"
+                  />
+                  <Label htmlFor="snap-grid" className="text-sm">
+                    Snap to Grid
+                  </Label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Document Canvas with Field Overlay */}
+          <div className="lg:col-span-2">
+            <DocumentTemplateCanvas
+              fields={fields}
+              selectedField={selectedField}
+              onFieldSelect={setSelectedField}
+              onFieldUpdate={handleFieldUpdate}
+              onAddField={addNewField}
+              documentImage={documentImage}
+              onDocumentUpload={handleDocumentUpload}
+              showGrid={showGrid}
+              snapToGrid={snapToGrid}
+              showFieldLabels={showFieldLabels}
+              structureOnly={(() => {
+                // Check if we have hierarchical structure (from field detection)
+                // If fields have section property and are auto-generated, it's structure-only mode
+                return fields.length > 0 && fields.some(f => f.section && f.suggested);
+              })()}
+              multiSelect={multiSelect}
+              selectedFields={selectedFields}
+              onFieldSelection={toggleFieldSelection}
+              onDuplicateField={duplicateField}
+              onDeleteField={deleteField}
+            />
+          </div>
+
+          {/* Field Properties Panel */}
+          <div className="space-y-4 h-[calc(100vh-150px)] flex flex-col">
+            <Card className="p-3">
+              <h3 className="text-base font-semibold mb-2">Field Properties</h3>
+              
+              {selectedField ? (
+                <div className="space-y-2">
+                  <div>
+                    <Label htmlFor="field-label">Field Label</Label>
+                    <Input
+                      id="field-label"
+                      value={selectedField.label}
+                      onChange={(e) => handleFieldUpdate(selectedField.id, { label: e.target.value })}
+                      className="h-8"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="field-type">Field Type</Label>
+                    <Select
+                      value={selectedField.type}
+                      onValueChange={(value: TemplateField['type']) => 
+                        handleFieldUpdate(selectedField.id, { type: value })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-card border border-border shadow-strong z-50">
+                        {fieldTypes.map(type => (
+                          <SelectItem key={type.value} value={type.value}>
+                            <div className="flex items-center gap-2">
+                              <type.icon className="h-4 w-4" />
+                              {type.label}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="field-required"
+                      checked={selectedField.required}
+                      onChange={(e) => handleFieldUpdate(selectedField.id, { required: e.target.checked })}
+                      className="rounded border-border"
+                    />
+                    <Label htmlFor="field-required">Required field</Label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label htmlFor="field-width">Width</Label>
+                    <Input
+                      id="field-width"
+                      type="number"
+                      value={selectedField.width}
+                      onChange={(e) => handleFieldUpdate(selectedField.id, { width: parseInt(e.target.value) || 0 })}
+                      className="h-8"
+                    />
+                    </div>
+                    <div>
+                      <Label htmlFor="field-height">Height</Label>
+                      <Input
+                        id="field-height"
+                        type="number"
+                        value={selectedField.height}
+                        onChange={(e) => handleFieldUpdate(selectedField.id, { height: parseInt(e.target.value) || 0 })}
+                        className="h-8"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label htmlFor="field-x">X Position</Label>
+                      <Input
+                        id="field-x"
+                        type="number"
+                        value={selectedField.x}
+                        onChange={(e) => handleFieldUpdate(selectedField.id, { x: parseInt(e.target.value) || 0 })}
+                        className="h-8"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="field-y">Y Position</Label>
+                      <Input
+                        id="field-y"
+                        type="number"
+                        value={selectedField.y}
+                        onChange={(e) => handleFieldUpdate(selectedField.id, { y: parseInt(e.target.value) || 0 })}
+                        className="h-8"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Table-specific properties */}
+                  {selectedField.type === 'table' && (
+                    <div className="space-y-2">
+                      <Label>Table Columns</Label>
+                      <div className="space-y-2">
+                        {selectedField.columns?.map((column, index) => (
+                          <div key={index} className="flex items-center gap-2">
+                            <Input
+                              value={column}
+                              onChange={(e) => {
+                                const newColumns = [...(selectedField.columns || [])];
+                                newColumns[index] = e.target.value;
+                                handleFieldUpdate(selectedField.id, { columns: newColumns });
+                              }}
+                              className="h-8"
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const newColumns = (selectedField.columns || []).filter((_, i) => i !== index);
+                                handleFieldUpdate(selectedField.id, { columns: newColumns });
+                              }}
+                              className="h-8 w-8 p-0"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const newColumns = [...(selectedField.columns || []), 'New Column'];
+                            handleFieldUpdate(selectedField.id, { columns: newColumns });
+                          }}
+                          className="w-full h-8"
+                        >
+                          <Plus className="mr-2 h-3 w-3" />
+                          Add Column
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  <Button 
+                    variant="destructive" 
+                    size="sm" 
+                    className="w-full h-8"
+                    onClick={() => deleteField(selectedField.id)}
+                  >
+                    <Trash2 className="mr-2 h-3 w-3" />
+                    Delete Field
+                  </Button>
+                </div>
+              ) : (
+                <div className="text-center text-muted-foreground py-8">
+                  <Square className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                  <p>Select a field to edit its properties</p>
+                </div>
+              )}
+            </Card>
+
+            {/* Field List */}
+            <Card className="p-4 flex flex-col flex-1 min-h-0">
+              <h3 className="text-lg font-semibold mb-3">All Fields</h3>
+              <div className="flex-1 overflow-y-auto space-y-2 pr-2 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
+                {fields.length === 0 ? (
+                  <div className="text-center text-muted-foreground py-8">
+                    <p className="text-sm">No fields added yet</p>
+                    <p className="text-xs mt-1">Click "Add Field" to create your first field</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Quick Actions */}
+                    <div className="flex items-center gap-2 p-2 bg-muted/50 rounded-lg">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={selectAllFields}
+                        disabled={fields.length === 0}
+                      >
+                        Select All
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={clearSelection}
+                        disabled={selectedFields.length === 0}
+                      >
+                        Clear
+                      </Button>
+                      <div className="flex-1 text-xs text-muted-foreground">
+                        {selectedFields.length} of {fields.length} selected
+                      </div>
+                    </div>
+
+                {/* Fields List - Grouped by Sections */}
+                {(() => {
+                  // Group fields by section
+                  const groupedFields = fields.reduce((groups: any, field) => {
+                    const section = field.section || 'general';
+                    if (!groups[section]) {
+                      groups[section] = [];
+                    }
+                    groups[section].push(field);
+                    return groups;
+                  }, {});
+
+                  // Get section names from sections state (strip page suffixes for display)
+                  const sectionMap = sections.reduce((map, section) => {
+                    // Format section name to strip page suffixes for display
+                    map[section.id] = formatFieldName(section.name);
+                    return map;
+                  }, {} as Record<string, string>);
+                  
+                  // Create a map of section order for sorting
+                  const sectionOrderMap = sections.reduce((map, section) => {
+                    map[section.id] = section.order ?? 999; // Use order property, default to 999 for sections without order
+                    return map;
+                  }, {} as Record<string, number>);
+
+                  // Sort sections by their order (preserves LLM order from _keyOrder)
+                  const sortedSections = Object.entries(groupedFields).sort(([sectionIdA], [sectionIdB]) => {
+                    const orderA = sectionOrderMap[sectionIdA] ?? 999;
+                    const orderB = sectionOrderMap[sectionIdB] ?? 999;
+                    return orderA - orderB;
+                  });
+
+                  return sortedSections.map(([sectionId, sectionFields]: [string, any]) => {
+                    // Get section name from map, or format the sectionId if not found (strip page suffixes)
+                    const sectionName = sectionMap[sectionId] || formatFieldName(sectionId);
+                    
+                    // Check if this section has only one field that matches the section name (common for tables)
+                    const isSingleMatchingTable = sectionFields.length === 1 && 
+                      sectionFields[0].type === 'table' && 
+                      formatFieldName(sectionFields[0].label).toLowerCase() === sectionName.toLowerCase();
+                    
+                    return (
+                      <div key={sectionId} className="space-y-2">
+                        {/* Section Header */}
+                        <div className="flex items-center gap-2 px-2 py-1 bg-muted/30 rounded-md">
+                          <div className="w-2 h-2 bg-primary rounded-full" />
+                          {editingSection === sectionId ? (
+                            <div className="flex items-center gap-2 flex-1">
+                              <Input
+                                value={editingSectionName}
+                                onChange={(e) => setEditingSectionName(e.target.value)}
+                                className="h-6 text-sm font-medium"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    saveSectionEdit();
+                                  } else if (e.key === 'Escape') {
+                                    cancelSectionEdit();
+                                  }
+                                }}
+                              />
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={saveSectionEdit}
+                                className="h-6 w-6 p-0"
+                              >
+                                <Save className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={cancelSectionEdit}
+                                className="h-6 w-6 p-0"
+                              >
+                                <Square className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <div 
+                              className="flex items-center gap-2 flex-1 cursor-pointer hover:bg-muted/50 rounded px-1 -mx-1"
+                              onClick={() => startEditingSection(sectionId, sectionName)}
+                              title="Click to rename section"
+                            >
+                              <div className="text-sm font-medium text-primary">{sectionName}</div>
+                              <div className="text-xs text-muted-foreground">({sectionFields.length})</div>
+                            </div>
+                          )}
+                        </div>
+                          
+                          {/* Fields in this section */}
+                          {sectionFields.map((field: any) => {
+                            // Debug: Log when rendering table fields to diagnose missing properties
+                            if (field.type === 'table' && field.columns && field.columns.length > 0) {
+                              const hasGroupedProps = field.isGroupedTable !== undefined || field.groupedHeaders !== undefined;
+                              if (!hasGroupedProps) {
+                                console.warn(`⚠️ Table field "${field.label}" missing grouped table properties:`, {
+                                  hasIsGroupedTable: field.isGroupedTable !== undefined,
+                                  hasGroupedHeaders: field.groupedHeaders !== undefined,
+                                  allKeys: Object.keys(field)
+                                });
+                              }
+                            }
+                            
+                            // For single matching table, don't show the field label separately - just show table preview
+                            if (isSingleMatchingTable) {
+                              return (
+                                <div key={field.id} className="ml-4">
+                                  {/* Show table preview directly without redundant field label */}
+                                  {field.type === 'table' && field.columns && field.columns.length > 0 && (
+                                    <div className="mt-2">
+                                      <div className="border-2 border-border rounded-md overflow-hidden bg-card">
+                                        <div className="overflow-x-auto">
+                                          <table className="w-full text-xs border-collapse">
+                                            <thead>
+                                              {/* Render grouped headers if this is a grouped table */}
+                                              {(() => {
+                                                const isGrouped = field.isGroupedTable === true;
+                                                const hasHeaders = field.groupedHeaders && Array.isArray(field.groupedHeaders) && field.groupedHeaders.length > 0;
+                                                return isGrouped && hasHeaders;
+                                              })() ? (
+                                                <>
+                                                  {/* Parent header row - show ALL headers (single columns and grouped headers) */}
+                                                  <tr className="bg-muted/70">
+                                                    {field.groupedHeaders.map((groupHeader: any, idx: number) => {
+                                                      if (groupHeader.colspan === 1) {
+                                                        // Single column - show in parent header row
+                                                        return (
+                                                          <th 
+                                                            key={idx}
+                                                            className="px-2 py-1.5 text-left font-medium text-foreground border border-border text-xs bg-muted/80"
+                                                          >
+                                                            {formatFieldName(groupHeader.name)}
+                                                          </th>
+                                                        );
+                                                      } else {
+                                                        // Grouped header - span across sub-columns
+                                                        return (
+                                                          <th 
+                                                            key={idx} 
+                                                            colSpan={groupHeader.colspan}
+                                                            className="px-2 py-1.5 text-center font-bold text-foreground border border-border text-xs bg-muted/80"
+                                                          >
+                                                            {formatFieldName(groupHeader.name)}
+                                                          </th>
+                                                        );
+                                                      }
+                                                    })}
+                                                  </tr>
+                                                  {/* Sub-header row - only show sub-headers for grouped columns, empty for single columns */}
+                                                  {field.groupedHeaders.some((h: any) => h.colspan > 1) && (
+                                                    <tr className="bg-muted/70">
+                                                      {field.groupedHeaders.map((groupHeader: any, groupIdx: number) => {
+                                                        if (groupHeader.colspan === 1) {
+                                                          // Single column - empty cell in sub-header row (maintains alignment)
+                                                          return (
+                                                            <th 
+                                                              key={groupIdx}
+                                                              className="px-2 py-1 border border-border text-xs bg-muted/30"
+                                                            >
+                                                              
+                                                            </th>
+                                                          );
+                                                        } else {
+                                                          // Multiple columns (grouped) - render sub-headers
+                                                          return groupHeader.subHeaders.map((subHeader: string, subIdx: number) => (
+                                                            <th 
+                                                              key={`${groupIdx}-${subIdx}`}
+                                                              className="px-2 py-1.5 text-left font-medium text-foreground border border-border text-xs whitespace-nowrap"
+                                                            >
+                                                              {formatFieldName(subHeader)}
+                                                            </th>
+                                                          ));
+                                                        }
+                                                      })}
+                                                    </tr>
+                                                  )}
+                                                </>
+                                              ) : (
+                                                // Regular table - single header row
+                                                <tr className="bg-muted/70">
+                                                  {field.columns.map((column: string, index: number) => (
+                                                    <th 
+                                                      key={index}
+                                                      className="px-2 py-1.5 text-left font-medium text-foreground border border-border text-xs whitespace-nowrap"
+                                                    >
+                                                      {formatFieldName(column)}
+                                                    </th>
+                                                  ))}
+                                                </tr>
+                                              )}
+                                            </thead>
+                                            <tbody>
+                                              <tr>
+                                                {field.columns.map((_column: string, index: number) => (
+                                                  <td 
+                                                    key={index}
+                                                    className="px-2 py-2 border border-border text-muted-foreground whitespace-nowrap bg-background"
+                                                  >
+                                                    —
+                                                  </td>
+                                                ))}
+                                              </tr>
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center justify-between mt-1.5">
+                                        <div className="text-xs text-muted-foreground">
+                                          {field.columns.length} column{field.columns.length !== 1 ? 's' : ''}
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                          {field.confidence && (
+                                            <Badge variant="outline" className="text-xs">
+                                              {Math.round(field.confidence * 100)}%
+                                            </Badge>
+                                          )}
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              toggleFieldSelection(field.id);
+                                            }}
+                                            className="h-5 w-5 p-0"
+                                            title="Select field"
+                                          >
+                                            {selectedFields.includes(field.id) || selectedField?.id === field.id ? (
+                                              <div className="w-3 h-3 border-2 border-primary bg-primary rounded" />
+                                            ) : (
+                                              <div className="w-3 h-3 border-2 border-border rounded" />
+                                            )}
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            }
+                            
+                            // Regular field display (for non-matching or multiple fields)
+                            return (
+                              <div key={field.id} className="ml-4">
+                                {/* Regular field or table header */}
+                                <div 
+                                  className={`flex items-center justify-between p-2 rounded-lg border cursor-pointer transition-smooth group ${
+                                    selectedFields.includes(field.id)
+                                      ? 'border-primary bg-primary/5' 
+                                      : selectedField?.id === field.id
+                                      ? 'border-primary/50 bg-primary/5'
+                                      : 'border-border hover:bg-accent'
+                                  }`}
+                                  onClick={() => toggleFieldSelection(field.id)}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    {getFieldIcon(field.type)}
+                                    <div>
+                                      <div className="font-medium text-sm">{field.label}</div>
+                                      <div className="text-xs text-muted-foreground capitalize">
+                                        {field.type} {field.required && '• Required'}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    {field.confidence && (
+                                      <Badge variant="outline" className="text-xs">
+                                        {Math.round(field.confidence * 100)}%
+                                      </Badge>
+                                    )}
+                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          duplicateField(field.id);
+                                        }}
+                                        className="h-6 w-6 p-0"
+                                      >
+                                        <Copy className="h-3 w-3" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          deleteField(field.id);
+                                        }}
+                                        className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </div>
+                                  
+                                {/* Show table preview if it's a table */}
+                                {field.type === 'table' && field.columns && field.columns.length > 0 && (
+                                  <div className="ml-6 mt-2">
+                                    <div className="text-xs text-muted-foreground font-medium mb-2">Table Preview:</div>
+                                    <div className="border-2 border-border rounded-md overflow-hidden bg-card">
+                                      <div className="overflow-x-auto">
+                                        <table className="w-full text-xs border-collapse">
+                                          <thead>
+                                            {/* Render grouped headers if this is a grouped table */}
+                                            {(() => {
+                                              const isGrouped = field.isGroupedTable === true;
+                                              const hasHeaders = field.groupedHeaders && Array.isArray(field.groupedHeaders) && field.groupedHeaders.length > 0;
+                                              return isGrouped && hasHeaders;
+                                            })() ? (
+                                              <>
+                                                {/* Parent header row - show ALL headers (single columns and grouped headers) */}
+                                                <tr className="bg-muted/70">
+                                                  {field.groupedHeaders.map((groupHeader: any, idx: number) => {
+                                                    if (groupHeader.colspan === 1) {
+                                                      // Single column - show in parent header row
+                                                      return (
+                                                        <th 
+                                                          key={idx}
+                                                          className="px-2 py-1.5 text-left font-medium text-foreground border border-border text-xs bg-muted/80"
+                                                        >
+                                                          {formatFieldName(groupHeader.name)}
+                                                        </th>
+                                                      );
+                                                    } else {
+                                                      // Grouped header - span across sub-columns
+                                                      return (
+                                                        <th 
+                                                          key={idx} 
+                                                          colSpan={groupHeader.colspan}
+                                                          className="px-2 py-1.5 text-center font-bold text-foreground border border-border text-xs bg-muted/80"
+                                                        >
+                                                          {formatFieldName(groupHeader.name)}
+                                                        </th>
+                                                      );
+                                                    }
+                                                  })}
+                                                </tr>
+                                                {/* Sub-header row - only show sub-headers for grouped columns, empty for single columns */}
+                                                {field.groupedHeaders.some((h: any) => h.colspan > 1) && (
+                                                  <tr className="bg-muted/70">
+                                                    {field.groupedHeaders.map((groupHeader: any, groupIdx: number) => {
+                                                      if (groupHeader.colspan === 1) {
+                                                        // Single column - empty cell in sub-header row
+                                                        return (
+                                                          <th 
+                                                            key={groupIdx}
+                                                            className="px-2 py-1.5 border border-border text-xs"
+                                                            style={{ visibility: 'hidden' }}
+                                                          >
+                                                            &nbsp;
+                                                          </th>
+                                                        );
+                                                      } else {
+                                                        // Multiple columns (grouped) - render sub-headers
+                                                        return groupHeader.subHeaders.map((subHeader: string, subIdx: number) => (
+                                                          <th 
+                                                            key={`${groupIdx}-${subIdx}`}
+                                                            className="px-2 py-1.5 text-left font-medium text-foreground border border-border text-xs whitespace-nowrap"
+                                                          >
+                                                            {formatFieldName(subHeader)}
+                                                          </th>
+                                                        ));
+                                                      }
+                                                    })}
+                                                  </tr>
+                                                )}
+                                              </>
+                                            ) : (
+                                              // Regular table - single header row
+                                              <tr className="bg-muted/70">
+                                                {field.columns.map((column: string, index: number) => (
+                                                  <th 
+                                                    key={index}
+                                                    className="px-2 py-1.5 text-left font-medium text-foreground border border-border text-xs whitespace-nowrap"
+                                                  >
+                                                    {formatFieldName(column)}
+                                                  </th>
+                                                ))}
+                                              </tr>
+                                            )}
+                                          </thead>
+                                          <tbody>
+                                            <tr>
+                                              {field.columns.map((_column: string, index: number) => (
+                                                <td 
+                                                  key={index}
+                                                  className="px-2 py-2 border border-border text-muted-foreground whitespace-nowrap bg-background"
+                                                >
+                                                  —
+                                                </td>
+                                              ))}
+                                            </tr>
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </div>
+                                    <div className="text-xs text-muted-foreground mt-1.5">
+                                      {field.columns.length} column{field.columns.length !== 1 ? 's' : ''}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    });
+                  })()}
+                  </>
+                )}
+              </div>
+            </Card>
+          </div>
+        </div>
+      </div>
+
+      {/* OCR Result Dialog */}
+      <Dialog open={showExtraction} onOpenChange={setShowExtraction}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>OCR Result</DialogTitle>
+            <DialogDescription>Extracted text from the current document.</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[50vh] overflow-auto rounded border border-border bg-muted/30 p-3">
+            <pre className="text-sm whitespace-pre-wrap break-words">{extractionText || 'No text found.'}</pre>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Save Template Dialog */}
+      <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Save Template</DialogTitle>
+            <DialogDescription>
+              Configure your template metadata before saving
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="template-name">Template Name *</Label>
+                <Input
+                  id="template-name"
+                  value={templateMetadata.name}
+                  onChange={(e) => setTemplateMetadata(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="e.g., Employee Information Form"
+                />
+              </div>
+              <div>
+                <Label htmlFor="template-type">Document Type *</Label>
+                <Select 
+                  value={templateMetadata.document_type} 
+                  onValueChange={(value) => setTemplateMetadata(prev => ({ ...prev, document_type: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select document type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="General">General</SelectItem>
+                    <SelectItem value="Invoice">Invoice</SelectItem>
+                    <SelectItem value="Contract">Contract</SelectItem>
+                    <SelectItem value="Form">Form</SelectItem>
+                    <SelectItem value="Report">Report</SelectItem>
+                    <SelectItem value="Application">Application</SelectItem>
+                    <SelectItem value="Receipt">Receipt</SelectItem>
+                    <SelectItem value="Statement">Statement</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="template-description">Description</Label>
+              <Input
+                id="template-description"
+                value={templateMetadata.description}
+                onChange={(e) => setTemplateMetadata(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Brief description of this template"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="template-version">Version</Label>
+                <Input
+                  id="template-version"
+                  value={templateMetadata.version}
+                  onChange={(e) => setTemplateMetadata(prev => ({ ...prev, version: e.target.value }))}
+                  placeholder="1.0"
+                />
+              </div>
+              <div>
+                <Label htmlFor="template-status">Status</Label>
+                <Select 
+                  value={templateMetadata.status} 
+                  onValueChange={(value: 'draft' | 'active' | 'archived') => setTemplateMetadata(prev => ({ ...prev, status: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="draft">Draft</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="archived">Archived</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="template-public"
+                  checked={templateMetadata.is_public}
+                  onCheckedChange={(checked) => setTemplateMetadata(prev => ({ ...prev, is_public: checked }))}
+                />
+                <Label htmlFor="template-public">Make Public</Label>
+              </div>
+            </div>
+
+            <div className={`p-4 rounded-lg ${fields.length === 0 ? 'bg-destructive/10 border border-destructive/20' : 'bg-muted/50'}`}>
+              <h4 className="font-medium mb-2">Template Summary</h4>
+              <div className="text-sm space-y-1">
+                <p className={fields.length === 0 ? 'text-destructive font-medium' : 'text-muted-foreground'}>
+                  <strong>Fields:</strong> {fields.length} fields defined
+                  {fields.length === 0 && ' ⚠️'}
+                </p>
+                <p className="text-muted-foreground"><strong>Document:</strong> {documentImage ? 'Document uploaded' : 'No document'}</p>
+                {fields.length === 0 && (
+                  <p className="text-destructive text-xs mt-2">
+                    ⚠️ Templates must have at least one field to be saved
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end space-x-3">
+            <Button variant="outline" onClick={() => setShowSaveDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={async () => {
+                if (!templateMetadata.name.trim()) {
+                  toast({
+                    title: "Validation Error",
+                    description: "Template name is required",
+                    variant: "destructive"
+                  });
+                  return;
+                }
+                
+                if (fields.length === 0) {
+                  toast({
+                    title: "Cannot Save Empty Template",
+                    description: "Please add at least one field before saving",
+                    variant: "destructive"
+                  });
+                  return;
+                }
+                
+                setShowSaveDialog(false);
+                await saveTemplate();
+              }}
+              disabled={!templateMetadata.name.trim() || fields.length === 0}
+            >
+              <Save className="mr-2 h-4 w-4" />
+              Save Template
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Section Creation Dialog */}
+      {showSectionDialog && (
+        <Dialog open={showSectionDialog} onOpenChange={setShowSectionDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Create New Section</DialogTitle>
+              <DialogDescription>
+                Add a new section to organize your template fields hierarchically.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="section-name">Section Name</Label>
+                <Input
+                  id="section-name"
+                  value={newSectionName}
+                  onChange={(e) => setNewSectionName(e.target.value)}
+                  placeholder="e.g., Customer Details, Invoice Items"
+                  className="mt-1"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowSectionDialog(false);
+                    setNewSectionName('');
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={addNewSection} disabled={!newSectionName.trim()}>
+                  Create Section
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
+  );
+};

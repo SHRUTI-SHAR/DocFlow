@@ -1,0 +1,71 @@
+{
+  "api_endpoint": "http://localhost:8000/api/v1/analyze-document",
+  "test_name": "Quick Load Test (Limited API Credits)",
+  "description": "Fast load testing with minimal API calls for demonstration",
+  
+  "thread_counts": [1, 5, 10],
+  
+  "test_pdfs": [
+    {
+      "name": "1-page-simple",
+      "path": "test_pdfs/1_page_simple.pdf",
+      "pages": 1,
+      "complexity": "simple",
+      "description": "Simple single page text document"
+    },
+    {
+      "name": "2-page-form",
+      "path": "test_pdfs/2_page_form.pdf",
+      "pages": 2,
+      "complexity": "medium",
+      "description": "Two page form with fields"
+    }
+  ],
+  
+  "test_settings": {
+    "iterations_per_config": 2,
+    "warmup_requests": 0,
+    "request_timeout": 600,
+    "save_to_database": false,
+    "task": "without_template_extraction"
+  },
+  
+  "backend_settings": {
+    "test_configurations": [
+      {
+        "name": "Low Resource (No YOLO)",
+        "maxWorkers": 5,
+        "maxThreads": 5,
+        "yoloSignatureEnabled": false
+      },
+      {
+        "name": "Default Settings",
+        "maxWorkers": 10,
+        "maxThreads": 10,
+        "yoloSignatureEnabled": true
+      }
+    ]
+  },
+  
+  "monitoring": {
+    "cpu_monitoring": true,
+    "memory_monitoring": true,
+    "interval_seconds": 1
+  },
+  
+  "output": {
+    "results_dir": "test_results",
+    "save_json": true,
+    "save_csv": true,
+    "save_html": true,
+    "save_sqlite": true
+  },
+  
+  "comments": {
+    "note1": "This is a QUICK test config with reduced tests",
+    "note2": "Only tests 2 PDFs with 3 thread counts and 2 backend configs = 12 total tests",
+    "note3": "Use this when API credits are limited or for quick validation",
+    "note4": "For full testing, use load_test_config.json",
+    "note5": "402 errors (API credits exhausted) will be tracked in error_breakdown"
+  }
+}

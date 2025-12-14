@@ -1,0 +1,39 @@
+services:
+  # Frontend - React/Vite with Nginx
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - VITE_FASTAPI_URL=${VITE_FASTAPI_URL}
+        - VITE_API_BASE_URL=${VITE_API_BASE_URL}
+        - VITE_BULK_API_URL=${VITE_BULK_API_URL}
+        - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+        - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
+        - VITE_MAX_PAYLOAD_SIZE=${VITE_MAX_PAYLOAD_SIZE}
+    container_name: docflow-frontend
+    expose:
+      - "80"
+    networks:
+      - coolify
+    environment:
+      - NODE_ENV=production
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.frontend.rule=Host(`${COOLIFY_FQDN}`)
+      - traefik.http.routers.frontend.entrypoints=http
+      - traefik.http.services.frontend.loadbalancer.server.port=80
+      - coolify.managed=true
+
+networks:
+  coolify:
+    external: true

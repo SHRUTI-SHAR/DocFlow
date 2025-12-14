@@ -1,0 +1,372 @@
+📄 Column Mapping Document Template
+1. Customer Since
+Source in PDF: _Already mapped correct. ______________________________
+2. Is the portfolio condition need Ijin Prinsip
+Source in PDF: _____Put Y or N Only Commercial (stated in the text).
+
+Y = Yes. Requires ijin prinsip
+N = No. Does not require ijin prinsip
+
+If the waiver field is not filled in, set it to N.
+
+Section 14 in "Keperluan Pengesampingan (Waiver)"
+Page 45 section 14 in PDF BWP
+
+__________________________
+3. Remarks
+Source in PDF: ______Will be filled in if Ijin Prinsip = N.
+If "Penjelasan Keperluan Pengesampingan" contains the words "Ijin Prinsip", then it will be used as the remarks.
+
+Section 14 in "Penjelasan Keperluan Pengesampingan (Waiver)"
+Page 45 section 14 in PDF BWP
+_________________________
+4. Business Sector
+Source in PDF: _____________
+Page 2 BWP in Tinjauan Perusahaan Table in "Sektor / Sub-Sektor Ekonomi" Column.
+Take the first part (before the dash or slash).
+__________________
+5. Business Sub Sector
+Source in PDF: __________
+Page 2 BWP in Tinjauan Perusahaan Table in "Sektor / Sub-Sektor Ekonomi" Column.
+After the dash or slash.
+_____________________
+6. Business Field
+Source in PDF: __________page 1 in tinjuana usaha section 
+Keyword: After word "Bergerak di bidang"
+_____________________
+7. Business Group
+Source in PDF: pg no 13 in 6.1 table row no 5 first column 
+__________________________
+8. Debtor Since
+Source in PDF: _____mapped correct ! __________________________
+9. Default Currency
+Source in PDF: __Page 17 in BWP
+at 9.1 Table
+__________________________
+10. Business Description
+Source in PDF: _______Page 1 at BWP After word "Bergerak di bidang…"
+Keyword: After word "Bergerak di bidang…"
+________________________
+11. Key Person
+Source in PDF: ____already correct ! ___________________________
+12. Company Name
+Source in PDF: __________page 2 in bwp Without using abbreviations "JPFA or PT BWAP"
+And ig its mapped correct ! _____________________
+13. NIK/NIB
+Source in PDF: _Page 3 in BWP
+Section 1.3 "Legalitas Usaha" Column "NIB", Row "Document".______________________________
+14. NPWP
+Source in PDF: _____Page 3 in BWP
+
+At Column NPWP 
+Row Document
+Numbers only (no dots or dashes).
+__________________________
+15. Date of Issue
+Source in PDF: _____Page 4 in BWP
+Section 1.3 "Legalitas Usaha" Column "NIB", Row "Tanggal terbit".
+
+Notes: Extract Dates.
+__________________________
+16. NPL
+Source in PDF: ______Page 14 in BWP PDF
+In the first table row "Koll"
+If the collectibility is greater than 2, set it to "Yes". 
+Notes:
+If there are multiple collectibility values, take the highest.
+_________________________
+17. Business Unit Details – Division
+Source in PDF: ________Page 1 on both PDF 
+at the top of the document
+First word after Nomor PAK: before /
+_______________________
+18. Business Unit Details – Unit
+Source in PDF: _________Page 1 on both PDF
+at the top of the document
+After Name Unit
+Already mapped correct ! ______________________
+19. Head Office Address
+Source in PDF: __Page 2 in BWP
+at table "1.1 Tinjauan Perusahaan"
+at Column "Kantor Pusat / Alamat"
+______it comes correct ! _______________________
+20. State/Province
+Source in PDF: ____Page 2 in BWP
+at table "1.1 Tinjauan Perusahaan"
+at Column "Kantor Pusat / Alamat"
+separate state / province ! ________________________
+21. City/County
+Source in PDF: ___Page 2 in BWP
+at table "1.1 Tinjauan Perusahaan"
+at Column "Kantor Pusat / Alamat"
+separate country____________________________
+22. PIC (Person In Charge) Name
+Source in PDF: ______Page 2 BWP in Tinjauan Perusahaan Table in "Key Person" Column. _________________________
+23. UBO (Ultimate Beneficiary Owner) Name
+Source in PDF: _______Page 13 in BWP Section 6 "Struktur Pemegang Saham"
+Extract Key Person Name
+________________________
+24. AHU ID
+Source in PDF: _____Page 2 in BWP
+Section 1.3 "Legalitas Usaha" Column "Pengesahan Kemenkumham", Row "Document".
+__________________________
+25. Is Public Company
+Source in PDF: _________put yes or no – page 2 1.1 tinjuana table______________________
+26. Application from Debtor/Prospective Debtor
+Source in PDF: ___Page 9 in BWP Section 3 "Permohonan & Tujuan Pinjaman" Extract document number "Surat No.xxx"____________________________
+27. Deed of Establishment ID
+Source in PDF: _____Page 2 in BWP
+Section 1.3 "Legalitas Usaha" Column "Akta Pendirian PT Bumiwarna Agungperkasa", Row "Document".
+__________________________
+28. Deed of Establishment Date
+Source in PDF: ______Page 2 in BWP
+Section 1.3 "Legalitas Usaha" Column "Akta Pendirian PT Bumiwarna Agungperkasa", Row "Tanggal Terbit".
+_________________________
+29. Country of Incorporation
+Source in PDF: ______Page 2 in BWP
+Section 1.3 "Legalitas Usaha" Column "Akta Pendirian PT Bumiwarna Agungperkasa", Row "Keterangan".
+Cimahi = Indonesia
+_________________________
+30. State/Province of Organization
+Source in PDF: ____Page 2 in BWP
+Section 1.3 "Legalitas Usaha" Column "Akta Perubahan", Row "Keterangan".
+Extract the state / Province
+___________________________
+31. Latest Amendment Deed ID
+Source in PDF: _________Page 2 in BWP
+Section 1.3 "Legalitas Usaha" Column "Akta Pendirian PT Bumiwarna Agungperkasa", Row "Document".
+______________________
+32. Latest Amendment Deed Date
+Source in PDF: ______Page 2 in BWP
+Section 1.3 "Legalitas Usaha" Column "Akta Pendirian PT Bumiwarna Agungperkasa", Row "Tanggal Terbit".
+_________________________
+33. Number of Employees
+Source in PDF: ____Page 2 in BWP
+at table "1.1 Tinjauan Perusahaan"
+at Column "Jumlah Pegawai"
+___________________________
+34. Years of Operation
+Source in PDF: ___Page 2 in BWP
+Section "1.2 Sejarah Perusahaan"
+Calculate the operating period based on the establishment date
+____________________________
+35. Citizenship Status
+Source in PDF: _____Page 3 in BWP Column "KTP an Didi Sulistiono"
+From the NIK on the KTP, you can tell whether they are an Indonesian citizen (WNI).
+
+Note: KTP = Kartu Tanda Penduduk (Indonesia’s national ID card). NIK = Nomor Induk Kependudukan (the ID number on the KTP)
+__________________________
+36. Date of Birth
+Source in PDF: ____________The date of birth can be obtained from the NIK.
+___________________
+37. Marital Status
+Source in PDF: _______Page 13 in BWP
+Section 6.1 Susunan Kepemilikan Saham 
+Row "Hubungan dengan Pemegang Saham" 
+Relationship with the shareholders
+The document mentions ‘Istri’, it can be inferred that the person is married.”
+________________________
+38. Company History
+Source in PDF: Page 2 in BWP
+Section "1.2 Sejarah Perusahaan"
+______________________________________
+39. Business Description
+Source in PDF: ___Page 2 in BWP
+Section "1.2 Sejarah Perusahaan"
+
+Notes: Keyword "bergerak di bidang ….."
+___________________________________
+40. Collectibility (SLIK)
+Source in PDF: Page 14 in BWK PDF
+Section 7.2 Data Slik OJK
+In the first table, row "Koll"
+ ______________________________________
+41. Sales Currency
+Source in PDF: Page 17 in BWP 
+Section 9.1 "Analisis Laba Rugi PT BUMIWARNA AGUNGPERKASA"
+CurrencyRp/IDR= Rupiah______________________________________
+42. Total Assets
+Source in PDF: Page 18 in BWP
+First table, Column "Total Assets"
+______________________________________
+43. Assets Currency
+Source in PDF: Page 18 in BWP
+Currency
+Rp/IDR= Rupiah
+
+______________________________________
+44. Total Assets Date
+Source in PDF: Page 18 in BWP
+______________________________________
+45. Current Account Balance
+Source in PDF: Page 8 in BWP
+Section Dana Per 31-10-2025," Total"
+______________________________________
+46. Total Credits (12 Months)
+Source in PDF: Page 20 in BWP
+Column "Total Kredit", Row "Setelah Validasi"
+______________________________________
+47. Days Past Due
+Source in PDF: Page 14 in BWK PDF
+Section 7.2 Data Slik OJK
+In the first table, row "Hari Tunggakan"
+Page 14 in BWK PDF
+Section 7.2 Data Slik OJK
+In the first table, row "Hari Tunggakan"
+______________________________________
+48. Senior RM/RM
+Source in PDF: Page 48 in BWP
+RM Name
+ ______________________________________
+49. CMC Head
+Source in PDF: Page 48 in BWP
+Departement Head Name
+50. Department Head
+Source in PDF:: Page 48 in BWP
+Departement Head Name
+51. Business Analyst
+Source in PDF: Page 48 in BWP
+BA name
+52. Customer Segment
+Source in PDF: Page 1 at top of document after the word "SEGMEN"
+53. Address Line 1
+Source in PDF: Page 2 in BWP in Column "Kantor Pusat/Alamat"
+54. Address Line 2
+Source in PDF: Page 2 in BWP in Column "Kantor Pusat/Alamat"
+55. Province
+Source in PDF: Page 2 in BWP in Column "Kantor Pusat/Alamat"
+Only Province
+56. City/Country
+Source in PDF: Page 2 in BWP in Column "Kantor Pusat/Alamat"
+Only City/Country
+57. Percent of Business
+Source in PDF: Page 13 in BWP
+Section 6.1 Susunan Kepemilikan Saham 
+58. Description
+Source in PDF: Page 13 in BWP
+Section 6.1 Susunan Kepemilikan Saham 
+Table "Catatan Tambahan"
+59. Customer Relationship
+Source in PDF: Page 2 in BWP in Column "Kantor Pusat/Alamat"
+60. Relationship Type
+Source in PDF: Page 10 in BWP
+Section 3.2 "Rujukan Permohonan Pinjaman", Row "Pihak Penandatanganan" After name, Job title
+61. Designation/Position
+Source in PDF: Page 10 in BWP
+Section 3.2 "Rujukan Permohonan Pinjaman", Row "Pihak Berwenang"
+
+62. Industry Experience
+Source in PDF: Page 13 in BWP
+Section 6 "Struktur Pemegang Saham", Work experience
+______________________________________
+63. Main Risk
+Source in PDF: Page 45 and 46 in BWP
+Section R1 "Analisis Risiko Dan Mitigasi", Row "Analisis Resiko"
+______________________________________
+64. Length of the Service
+Source in PDF: Page 2 in BWP in Column "Debitur BNI sejak"
+Calculate it from that year to the current year. For example, as of now = 10 years.______________________________________
+65. Buyer or Supplier Name
+Source in PDF: Page 12 in BWP
+The second-to-last point states that PT TBN supplies coal to PT Mitra Ciasem Raya.
+______________________________________
+66. Product Type
+Source in PDF: Page 12 in BWP
+At Table Produk yang ditawarkan = Product Offered.
+______________________________________
+67. Number of Contract & Period
+Source in PDF: Page 12 in BWP
+Point number 3, Contract Number
+______________________________________
+68. Average Sales Volume Per Month
+Source in PDF: Page 23 in BWP
+Table 3, Column D, Latest date.
+______________________________________
+69. Partnership Duration (Year)
+Source in PDF: Page 46 in BWP
+Column 4, "Risiko Kemampuan Pembayaran Kembali"
+From 2023 to 2026 = 3 years.
+______________________________________
+70. Payment Period (Day)
+Source in PDF: Page 22 in BWP
+Keyword: "Selambat-lambatnya 5 hari kerja…."
+5 days period
+______________________________________
+71. Percentages To Sales
+Source in PDF: Page 22 in BWP
+Keyword: "Bagi hasil sebesar 50% PT Powerland dan 50% PT TBN"
+Profit sharing: 50% for PT Powerland and 50% for PT TBN.
+______________________________________
+72. Prohibited Industry
+Source in PDF: Page 2 in BWP
+Keyword: "Telah terbit IUP PT TBN"
+The IUP for PT TBN has been issued.
+IUP = Izin Usaha Pertambangan (Mining Business Permit)
+Licensed = Not prohibited.
+______________________________________
+73. High Risk Industry
+Source in PDF: Page 10 in BWP
+Section 3.3 "Rangkuman Eksposure Debitur", Row "Keterangan", Column "PT BWAP"
+Dark Green = High Risk
+______________________________________
+74. Prior Business Bankruptcy
+Source in PDF: Page 41 in BWP 
+Point 13.7.6 "Bahwa Debitur pada waktu ini tidak tersangkut dalam perkara/sengketa berupa apapun juga yang dapat mengancam harta kekayaan Debitur"
+
+That the Debtor is currently not involved in any case/dispute of any kind that could threaten the Debtor’s assets.”
+______________________________________
+75. Tax Liens/Obligations Outstanding
+Source in PDF: Page 18 in BWP 
+Column "Utang Pajak", Latest date.
+Tax debt.
+______________________________________
+76. Business Status
+Source in PDF: Page 2 in BWP
+at table "1.1 Tinjauan Perusahaan"
+at Column "Pendapatan Tahunan"
+______________________________________
+77. Last Review
+Source in PDF: Page 7 in BWP
+Section 2.2 "Pemenuhan Syarat Restrukturisasi", Latest Date
+______________________________________
+78. Next Review
+Source in PDF: Page 25 in BWP
+Next Date
+KMK = Kredit Modal Kerja.(Working Capital Loan)
+______________________________________
+79. Review Frequency
+Source in PDF: Page 25 in BWP
+______________________________________
+80. Review Frequency Type
+Source in PDF: Page 25 in BWP
+12 bulan = annual
+12 month=annual
+______________________________________
+81. Contact Type
+Source in PDF: Page 13 in BWP
+
+Section Susunan Kepemilikan Saham, Row "Penjelasan", Second in command.
+______________________________________
+82. Contact Name
+Source in PDF: 
+Page 13 in BWP
+
+Section Susunan Kepemilikan Saham, Row "Nama
+______________________________________
+83. Title/Position
+Source in PDF: Page 13 in BWP
+
+Section Susunan Kepemilikan Saham, Row "Penjelasan", Second in command.
+______________________________________
+84. Company Name
+Source in PDF: Page 13 in BWK
+Company Name
+______________________________________
+85. Is Primary Contact
+Source in PDF: Page 13 in BWK
+If the key person is a different individual, then it is not the primary one.______________________________________
+86. Contact Notes / Additional Comments
+Source in PDF: Page 13 in BWP
+Section 6.1 "Susunan Kepemilikan Saham", Row "Hubungan dengan pemegang saham"
+ ______________________________________
+

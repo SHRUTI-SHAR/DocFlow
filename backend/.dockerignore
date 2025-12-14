@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+*.md
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+tmp/
+temp/
+
+# Test files
+test_*.py
+*_test.py
+tests/
+
+# Migration files (keep only the ones we need)
+migrate_*.sql
+add_*.sql
+update_*.sql
+enhance_*.sql
+
+# IMPORTANT: Explicitly include models directory and .pt files
+!models/
+!models/*
+!*.pt

@@ -1,0 +1,148 @@
+{
+  "api_endpoint": "http://localhost:8000/api/v1/analyze-document",
+  "test_name": "Document Processing Load Test",
+  "description": "Load testing for PDF document extraction with varying thread counts and document complexity",
+  
+  "thread_counts": [1, 10, 50, 100, 500, 1000],
+  
+  "test_pdfs": [
+    {
+      "name": "1-page-simple",
+      "path": "test_pdfs/1_page_simple.pdf",
+      "pages": 1,
+      "complexity": "simple",
+      "description": "Simple single page text document"
+    },
+    {
+      "name": "2-page-form",
+      "path": "test_pdfs/2_page_form.pdf",
+      "pages": 2,
+      "complexity": "medium",
+      "description": "Two page form with fields"
+    },
+    {
+      "name": "10-page-mixed",
+      "path": "test_pdfs/10_page_mixed.pdf",
+      "pages": 10,
+      "complexity": "medium",
+      "description": "Ten pages with mixed content"
+    },
+    {
+      "name": "50-page-text",
+      "path": "test_pdfs/50_page_text.pdf",
+      "pages": 50,
+      "complexity": "high",
+      "description": "Fifty pages text-heavy document"
+    },
+    {
+      "name": "100-page-scan",
+      "path": "test_pdfs/100_page_scan.pdf",
+      "pages": 100,
+      "complexity": "very-high",
+      "description": "Hundred pages scanned document"
+    },
+    {
+      "name": "300-page-complex",
+      "path": "test_pdfs/300_page_complex.pdf",
+      "pages": 300,
+      "complexity": "extreme",
+      "description": "Three hundred pages complex document"
+    }
+  ],
+  
+  "test_settings": {
+    "iterations_per_config": 3,
+    "warmup_requests": 1,
+    "request_timeout": 600,
+    "save_to_database": false,
+    "task": "without_template_extraction"
+  },
+  
+  "backend_settings": {
+    "test_configurations": [
+      {
+        "name": "5W-5T-YOLO-ON",
+        "maxWorkers": 5,
+        "maxThreads": 5,
+        "yoloSignatureEnabled": true
+      },
+      {
+        "name": "5W-5T-YOLO-OFF",
+        "maxWorkers": 5,
+        "maxThreads": 5,
+        "yoloSignatureEnabled": false
+      },
+      {
+        "name": "10W-10T-YOLO-ON",
+        "maxWorkers": 10,
+        "maxThreads": 10,
+        "yoloSignatureEnabled": true
+      },
+      {
+        "name": "10W-10T-YOLO-OFF",
+        "maxWorkers": 10,
+        "maxThreads": 10,
+        "yoloSignatureEnabled": false
+      },
+      {
+        "name": "20W-20T-YOLO-ON",
+        "maxWorkers": 20,
+        "maxThreads": 20,
+        "yoloSignatureEnabled": true
+      },
+      {
+        "name": "20W-20T-YOLO-OFF",
+        "maxWorkers": 20,
+        "maxThreads": 20,
+        "yoloSignatureEnabled": false
+      },
+      {
+        "name": "30W-30T-YOLO-ON",
+        "maxWorkers": 30,
+        "maxThreads": 30,
+        "yoloSignatureEnabled": true
+      },
+      {
+        "name": "30W-30T-YOLO-OFF",
+        "maxWorkers": 30,
+        "maxThreads": 30,
+        "yoloSignatureEnabled": false
+      },
+      {
+        "name": "50W-50T-YOLO-ON",
+        "maxWorkers": 50,
+        "maxThreads": 50,
+        "yoloSignatureEnabled": true
+      },
+      {
+        "name": "50W-50T-YOLO-OFF",
+        "maxWorkers": 50,
+        "maxThreads": 50,
+        "yoloSignatureEnabled": false
+      }
+    ]
+  },
+  
+  "monitoring": {
+    "cpu_monitoring": true,
+    "memory_monitoring": true,
+    "interval_seconds": 1
+  },
+  
+  "output": {
+    "results_dir": "test_results",
+    "save_json": true,
+    "save_csv": true,
+    "save_html": true,
+    "save_sqlite": true
+  },
+  
+  "comments": {
+    "note1": "thread_counts represents concurrent requests",
+    "note2": "backend_settings.test_configurations allows testing different backend configurations",
+    "note3": "Each test will run with different maxWorkers, maxThreads, and YOLO settings",
+    "note4": "Test PDFs should be placed in backend/test_pdfs/ directory",
+    "note5": "Reduce iterations_per_config and thread_counts for faster testing",
+    "note6": "402 errors = API credits exhausted, script will handle gracefully"
+  }
+}

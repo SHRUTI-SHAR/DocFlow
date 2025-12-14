@@ -1,0 +1,142 @@
+# version: '3.8'
+
+# services:
+#   backend:
+#     build:
+#       context: .
+#       dockerfile: Dockerfile
+#     container_name: docflow-backend
+#     restart: unless-stopped
+#     ports:
+#       - "8000:8000"
+#     environment:
+#       # LLM Provider Configuration
+#       - LLM_PROVIDER=${LLM_PROVIDER:-litellm}
+      
+#       # LiteLLM Configuration (when LLM_PROVIDER=litellm)
+#       - LITELLM_API_URL=${LITELLM_API_URL:-}
+#       - LITELLM_API_KEY=${LITELLM_API_KEY:-}
+#       - LITELLM_HEADER_NAME=${LITELLM_HEADER_NAME:-Authorization}
+#       - LITELLM_AUTH_SCHEME=${LITELLM_AUTH_SCHEME:-Bearer}
+      
+#       # Direct Gemini Configuration (when LLM_PROVIDER=gemini_direct)
+#       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      
+#       # LLM Output Configuration
+#       - LLM_MAX_OUTPUT_TOKENS=${LLM_MAX_OUTPUT_TOKENS:-16384}
+      
+#       # Supabase Configuration
+#       - SUPABASE_URL=${SUPABASE_URL:-}
+#       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+      
+#       # Server Configuration
+#       - HOST=0.0.0.0
+#       - PORT=8000
+#       - DEBUG=${DEBUG:-false}
+#       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      
+#       # Processing Configuration
+#       - PDF_PROCESSING_MAX_WORKERS=${PDF_PROCESSING_MAX_WORKERS:-10}
+#       - PDF_PREFER_TEXT_EXTRACTION=${PDF_PREFER_TEXT_EXTRACTION:-true}
+#       - PDF_TEXT_CONFIDENCE_THRESHOLD=${PDF_TEXT_CONFIDENCE_THRESHOLD:-0.6}
+#       - MIN_CONFIDENCE_THRESHOLD=${MIN_CONFIDENCE_THRESHOLD:-0.6}
+      
+#       # Logging Configuration
+#       - LOG_FILE_MAX_SIZE=${LOG_FILE_MAX_SIZE:-50}
+#       - LOG_FILE_BACKUP_COUNT=${LOG_FILE_BACKUP_COUNT:-5}
+#       - LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-1}
+      
+#       # YOLO Configuration (Optional - disabled by default)
+#       - YOLO_SIGNATURE_ENABLED=${YOLO_SIGNATURE_ENABLED:-true}
+#       - YOLO_FACE_ENABLED=${YOLO_FACE_ENABLED:-true}
+#       - YOLO_USE_GPU=${YOLO_USE_GPU:-false}
+#     volumes:
+#       # Persist logs
+#       - ./logs:/app/logs
+#       # Mount models directory if using YOLO
+#       - ./models:/app/models:ro
+#     healthcheck:
+#       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+#       interval: 30s
+#       timeout: 10s
+#       retries: 3
+#       start_period: 40s
+#     networks:
+#       - docflow-network
+
+# networks:
+#   docflow-network:
+#     driver: bridge
+
+
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: docflow-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # LLM Provider Configuration
+      - LLM_PROVIDER=${LLM_PROVIDER:-litellm}
+      
+      # LiteLLM Configuration
+      - LITELLM_API_URL=${LITELLM_API_URL:-}
+      - LITELLM_API_KEY=${LITELLM_API_KEY:-}
+      - LITELLM_HEADER_NAME=${LITELLM_HEADER_NAME:-Authorization}
+      - LITELLM_AUTH_SCHEME=${LITELLM_AUTH_SCHEME:-Bearer}
+
+      # Gemini Direct Configuration
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+
+      # LLM Output
+      - LLM_MAX_OUTPUT_TOKENS=${LLM_MAX_OUTPUT_TOKENS:-16384}
+
+      # Supabase Configuration
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+
+      # Server Configuration
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEBUG=${DEBUG:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+      # PDF/Processing setup
+      - PDF_PROCESSING_MAX_WORKERS=${PDF_PROCESSING_MAX_WORKERS:-10}
+      - PDF_PREFER_TEXT_EXTRACTION=${PDF_PREFER_TEXT_EXTRACTION:-true}
+      - PDF_TEXT_CONFIDENCE_THRESHOLD=${PDF_TEXT_CONFIDENCE_THRESHOLD:-0.6}
+      - MIN_CONFIDENCE_THRESHOLD=${MIN_CONFIDENCE_THRESHOLD:-0.6}
+
+      # Logging settings
+      - LOG_FILE_MAX_SIZE=${LOG_FILE_MAX_SIZE:-50}
+      - LOG_FILE_BACKUP_COUNT=${LOG_FILE_BACKUP_COUNT:-5}
+      - LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-1}
+
+      # YOLO Settings
+      - YOLO_SIGNATURE_ENABLED=${YOLO_SIGNATURE_ENABLED:-true}
+      - YOLO_FACE_ENABLED=${YOLO_FACE_ENABLED:-true}
+      - YOLO_USE_GPU=${YOLO_USE_GPU:-false}
+      - YOLO_MODEL_DIR=/app/models
+
+    volumes:
+      - ./logs:/app/logs
+      - ./models:/app/models:ro   # Mount YOLO models inside container
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    networks:
+      - docflow-network
+
+networks:
+  docflow-network:
+    driver: bridge
