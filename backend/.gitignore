@@ -106,18 +106,8 @@ logs/
 .DS_Store
 Thumbs.db
 
-# dotenv
-.env
-.env.*
-
 # Backup files
 *~
 *.bak
 *.swp
 *.swo
-
-# Model files
-models/*.pt
-models/*.pth
-models/*.h5
-logs/
