@@ -190,7 +190,7 @@ class SemanticSearchService:
                 logger.info("🚀 Using VECTOR SEARCH (SQL function) for fast similarity search")
                 
                 response = self.supabase.rpc(
-                    'search_documents_by_similarity',
+                    'search_document_chunks_by_similarity',
                     {
                         'query_embedding': query_vector_str,
                         'user_id_param': user_id,

@@ -12,12 +12,15 @@ dist-ssr/
 build/
 *.local
 
-# Environment variables (keep .env for configuration)
-# .env - intentionally commented out to keep .env in version control
+# Environment variables
+.env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Keep example env files
+!.env.example
 
 # Editor directories and files
 .vscode/*

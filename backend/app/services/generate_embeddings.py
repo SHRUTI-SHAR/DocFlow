@@ -70,19 +70,8 @@ class GenerateEmbeddingsService:
             
             logger.info(f"Generated embedding with dimensions: {len(embedding)}")
             
-            # If documentId is provided, update the document with embedding
-            if document_id and self.supabase:
-                try:
-                    update_response = self.supabase.from_('documents').update({
-                        "embedding": embedding
-                    }).eq('id', document_id).execute()
-                    
-                    if update_response.error:
-                        logger.error(f"Failed to update document embedding: {update_response.error}")
-                    else:
-                        logger.info("Successfully updated document embedding")
-                except Exception as e:
-                    logger.error(f"Error updating document embedding: {str(e)}")
+            # Note: Embeddings are stored in document_chunks table, not in documents table
+            # The document_id parameter is kept for future use but not used for updates here
             
             return {
                 "embedding": embedding,

@@ -92,10 +92,10 @@ class RAGService:
             logger.info("📄 Step 2: Extracting context from documents...")
             context_data = self._extract_context_from_documents(retrieved_docs)
             logger.info(f"📄 Context extracted: {len(context_data)} characters")
-            logger.info(f"📄 Complete context being sent to LLM:")
-            logger.info(f"📄 START CONTEXT ---")
-            logger.info(f"📄 {context_data}")
-            logger.info(f"📄 END CONTEXT ---")
+            logger.debug(f"📄 Complete context being sent to LLM:")
+            logger.debug(f"📄 START CONTEXT ---")
+            logger.debug(context_data)
+            logger.debug(f"📄 END CONTEXT ---")
             
             # Step 3: Generate answer using LLM
             logger.info("🧠 Step 3: Generating answer with LLM...")
@@ -168,11 +168,11 @@ class RAGService:
                 similarity_score = doc.get('similarity_score', 0.0)
                 analysis_result = doc.get('analysis_result', {})
                 
-                logger.info(f"📋 Document {i} debug:")
-                logger.info(f"   - ID: {doc.get('id', 'Unknown')}")
-                logger.info(f"   - Name: {doc_name}")
-                logger.info(f"   - Analysis result type: {type(analysis_result)}")
-                logger.info(f"   - Analysis result content: {str(analysis_result)[:200]}...")
+                logger.debug(f"📋 Document {i} debug:")
+                logger.debug(f"   - ID: {doc.get('id', 'Unknown')}")
+                logger.debug(f"   - Name: {doc_name}")
+                logger.debug(f"   - Analysis result type: {type(analysis_result)}")
+                logger.debug(f"   - Analysis result content: {str(analysis_result)[:200]}...")
                 
                 # Add document header
                 context_parts.append(f"--- Document {i}: {doc_name} (Relevance: {similarity_score:.3f}) ---")
@@ -233,7 +233,7 @@ class RAGService:
                                 context_parts.append(f"{field_name}: {field_value}")
                 else:
                     logger.warning(f"⚠️ No hierarchical_data or fields found in analysis_result for document {i}")
-                    logger.warning(f"⚠️ Analysis result content: {str(analysis_result)[:200]}...")
+                    logger.debug(f"⚠️ Analysis result content: {str(analysis_result)[:200]}...")
                 
                 context_parts.append("")  # Empty line between documents
             
@@ -401,8 +401,8 @@ INSTRUCTIONS:
 IMPORTANT: Look for the father's name in fields like "Father Name" or similar. The context contains document information that may have the answer.
 
 ANSWER:"""
-        logger.info(f"🔍 RAG Prompt being sent to LLM:")
-        logger.info(f"🔍 {prompt}")
+        logger.debug(f"🔍 RAG Prompt being sent to LLM:")
+        logger.debug(prompt)
         return prompt
     
     def _extract_confidence_from_answer(self, answer: str) -> float:

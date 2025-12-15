@@ -64,7 +64,7 @@ export const EnhancedDocumentUpload: React.FC<EnhancedDocumentUploadProps> = ({
   const [dragActive, setDragActive] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [enableRAG, setEnableRAG] = useState(true);
-  const [enableClassification, setEnableClassification] = useState(true);
+  const [enableClassification, setEnableClassification] = useState(false);
   const [uploadComplete, setUploadComplete] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -169,10 +169,55 @@ export const EnhancedDocumentUpload: React.FC<EnhancedDocumentUploadProps> = ({
 
       updateFileStatus(uploadFile.id, { status: 'processing', progress: 50 });
 
-      // Extract text for RAG if enabled
+      // Extract data from document using backend analysis if RAG is enabled
       let extractedText = '';
+      let extractedData: any = null;
+      
       if (enableRAG) {
-        extractedText = await extractTextFromFile(uploadFile.file);
+        try {
+          updateFileStatus(uploadFile.id, { status: 'analyzing', progress: 55 });
+          
+          // Convert file to base64
+          const reader = new FileReader();
+          const fileBase64 = await new Promise<string>((resolve) => {
+            reader.onload = () => resolve(reader.result as string);
+            reader.readAsDataURL(uploadFile.file);
+          });
+
+          // Call backend analysis endpoint for data extraction (without template matching)
+          const analysisResponse = await fetch(`${API_BASE_URL}/api/v1/analyze-document`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              documentData: fileBase64,
+              documentName: uploadFile.file.name,
+              task: 'without_template_extraction', // Extraction without template matching
+              userId: user.user.id,
+              saveToDatabase: false, // Don't save yet, we'll save after getting the result
+              yoloSignatureEnabled: false,
+              yoloFaceEnabled: false
+            }),
+          });
+
+          if (analysisResponse.ok) {
+            const analysisResult = await analysisResponse.json();
+            extractedData = analysisResult.extractedData || {};
+            extractedText = analysisResult.extractedText || '';
+            console.log('Document analysis completed:', { 
+              textLength: extractedText.length,
+              hasData: !!extractedData 
+            });
+          } else {
+            console.warn('Backend analysis failed, falling back to simple text extraction');
+            extractedText = await extractTextFromFile(uploadFile.file);
+          }
+        } catch (analysisError) {
+          console.error('Error during document analysis:', analysisError);
+          // Fallback to simple text extraction
+          extractedText = await extractTextFromFile(uploadFile.file);
+        }
       }
 
       updateFileStatus(uploadFile.id, { progress: 70 });
@@ -185,15 +230,14 @@ export const EnhancedDocumentUpload: React.FC<EnhancedDocumentUploadProps> = ({
         .from('documents')
         .insert({
           file_name: uploadFile.file.name,
-          name: uploadFile.file.name,
-          original_name: uploadFile.file.name,
-          file_path: fileName,
           storage_path: uploadData.path,
           file_size: uploadFile.file.size,
-          mime_type: uploadFile.file.type || 'application/octet-stream',
+          file_type: uploadFile.file.type || 'application/octet-stream',
           document_type: getDocumentType(uploadFile.file.type),
-          uploaded_by: user.user.id,
           user_id: user.user.id,
+          extracted_text: extractedText,
+          upload_source: 'manual',
+          processing_status: 'completed',
           metadata: {
             originalFileName: uploadFile.file.name,
             uploadedAt: new Date().toISOString(),
@@ -201,7 +245,7 @@ export const EnhancedDocumentUpload: React.FC<EnhancedDocumentUploadProps> = ({
             mimeType: uploadFile.file.type,
             relativePath: relativePath,
             ragEnabled: enableRAG,
-            extractedText: extractedText
+            extractedData: extractedData || undefined // Store extracted structured data
           }
         })
         .select()
@@ -211,39 +255,74 @@ export const EnhancedDocumentUpload: React.FC<EnhancedDocumentUploadProps> = ({
         throw new Error(`Database save failed: ${insertError.message}`);
       }
 
-      updateFileStatus(uploadFile.id, { progress: 80 });
+      updateFileStatus(uploadFile.id, { progress: 75 });
 
-      // Generate embeddings for RAG if enabled and we have text
+      // Generate embeddings with chunking for RAG if enabled and we have text
       if (enableRAG && extractedText && extractedText.trim().length > 10) {
         try {
-          console.log('Generating embeddings for document:', documentData.id);
+          updateFileStatus(uploadFile.id, { status: 'embedding', progress: 80 });
+          console.log('Generating embeddings with chunking for document:', documentData.id);
           
-          // Use Python backend instead of Supabase Edge Function
-          const response = await fetch(`${API_BASE_URL}/api/v1/generate-embeddings`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              text: extractedText.substring(0, 8000), // Limit text length
-              documentId: documentData.id
-            }),
-          });
-
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-            console.error('Embedding generation failed:', errorData);
-          } else {
-            console.log('Embeddings generated successfully');
+          // Split text into chunks for better RAG performance
+          const chunkSize = 1000; // characters per chunk
+          const chunkOverlap = 200; // overlap between chunks
+          const chunks: string[] = [];
+          
+          for (let i = 0; i < extractedText.length; i += (chunkSize - chunkOverlap)) {
+            const chunk = extractedText.substring(i, i + chunkSize);
+            if (chunk.trim().length > 50) { // Only add meaningful chunks
+              chunks.push(chunk);
+            }
           }
+
+          console.log(`Created ${chunks.length} chunks from extracted text`);
+
+          // Generate embeddings for each chunk and store in document_chunks table
+          for (let i = 0; i < chunks.length; i++) {
+            try {
+              const embeddingResponse = await fetch(`${API_BASE_URL}/api/v1/generate-embeddings`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  text: chunks[i],
+                  documentId: documentData.id
+                }),
+              });
+
+              if (embeddingResponse.ok) {
+                const embeddingResult = await embeddingResponse.json();
+                
+                // Store chunk with embedding in document_chunks table
+                await supabase
+                  .from('document_chunks')
+                  .insert({
+                    document_id: documentData.id,
+                    chunk_index: i,
+                    chunk_text: chunks[i],
+                    chunk_embedding: embeddingResult.embedding,
+                    token_count: Math.ceil(chunks[i].length / 4) // Rough estimate
+                  });
+                
+                console.log(`Stored chunk ${i + 1}/${chunks.length} with embedding`);
+              } else {
+                console.error(`Failed to generate embedding for chunk ${i + 1}`);
+              }
+            } catch (chunkError) {
+              console.error(`Error processing chunk ${i + 1}:`, chunkError);
+            }
+          }
+          
+          console.log(`Successfully processed ${chunks.length} chunks with embeddings`);
         } catch (embeddingError) {
           console.error('Error generating embeddings:', embeddingError);
         }
       }
 
-      updateFileStatus(uploadFile.id, { progress: 85 });
+      updateFileStatus(uploadFile.id, { progress: 90 });
 
-      // AI Classification if enabled
+      // AI Classification - only if explicitly enabled by user in UI
       let classificationResult = null;
       if (enableClassification) {
         try {
