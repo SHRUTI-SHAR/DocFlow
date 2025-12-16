@@ -207,7 +207,7 @@ export const DocumentManager: React.FC = () => {
 
   useEffect(() => {
     fetchDocuments();
-  }, []);
+  }, [selectedFolder, selectedDocumentType, refreshCounter]);
 
   useEffect(() => {
     if (!isSemanticSearch) {
@@ -223,15 +223,29 @@ export const DocumentManager: React.FC = () => {
 
   const fetchDocuments = async () => {
     try {
+      setLoading(true);
       const { data: user } = await supabase.auth.getUser();
       if (!user.user) return;
 
-      const response = await fetch(
-        `${API_BASE_URL}/api/v1/documents/${user.user.id}?document_type=${selectedDocumentType}`
-      );
+      // If a folder is selected, fetch only documents in that folder for better performance
+      let response;
+      if (selectedFolder === 'recycle-bin') {
+        console.log('🗑️ Fetching deleted documents (recycle bin) for user:', user.user.id);
+        response = await fetch(`${API_BASE_URL}/api/v1/documents/${user.user.id}/deleted`);
+      } else if (selectedFolder && selectedFolder !== 'all') {
+        console.log('Fetching documents for folder:', selectedFolder);
+        response = await fetch(`${API_BASE_URL}/api/v1/folders/${selectedFolder}/documents`);
+      } else {
+        console.log('Fetching all documents for user:', user.user.id);
+        response = await fetch(`${API_BASE_URL}/api/v1/documents/${user.user.id}?document_type=${selectedDocumentType}`);
+      }
+      
+      console.log('Response status:', response.status);
       
       if (!response.ok) {
         console.error('Failed to fetch documents:', response.status);
+        const errorText = await response.text();
+        console.error('Error details:', errorText);
         setDocuments([]);
         setDocumentStats({
           total: 0,
@@ -242,6 +256,8 @@ export const DocumentManager: React.FC = () => {
       }
 
       const data = await response.json();
+      console.log('📦 Received data:', data);
+      console.log('📊 Documents count:', data.documents?.length || 0);
       
       setDocuments(data.documents || []);
       setDocumentStats({
@@ -251,7 +267,7 @@ export const DocumentManager: React.FC = () => {
       });
       
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error fetching documents:', error);
       setDocuments([]);
       setDocumentStats({
         total: 0,
@@ -743,20 +759,20 @@ export const DocumentManager: React.FC = () => {
                 </TabsList>
                 
                 <TabsContent value="folders" className="mt-4">
-                  <DocumentTypeBuckets
-                    onTypeSelect={setSelectedDocumentType}
-                    selectedType={selectedDocumentType}
-                    refreshTrigger={refreshCounter}
+                  <SmartFolders
+                    onFolderSelect={(folderId) => {
+                      console.log('Folder selected:', folderId);
+                      setSelectedFolder(folderId);
+                    }}
+                    selectedFolder={selectedFolder}
                   />
                 </TabsContent>
 
                 <TabsContent value="types" className="mt-4">
-                  <DocumentTypeFilters
-                    documentTypes={documentTypes}
-                    selectedType={selectedDocumentType}
+                  <DocumentTypeBuckets
                     onTypeSelect={setSelectedDocumentType}
-                    documents={documents}
-                    loading={typesLoading}
+                    selectedType={selectedDocumentType}
+                    refreshTrigger={refreshCounter}
                   />
                 </TabsContent>
                 
@@ -800,11 +816,13 @@ export const DocumentManager: React.FC = () => {
                     <DocumentGrid 
                       documents={filteredDocuments}
                       onDocumentClick={handleDocumentClick}
+                      onRefresh={fetchDocuments}
                     />
                   ) : (
                     <DocumentList 
                       documents={filteredDocuments}
                       onDocumentClick={handleDocumentClick}
+                      onRefresh={fetchDocuments}
                     />
                   )}
                 </>

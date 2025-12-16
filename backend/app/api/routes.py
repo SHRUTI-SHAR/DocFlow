@@ -11,7 +11,9 @@ from ..models.schemas import (
     OrganizeDocumentsRequest, OrganizeDocumentsResponse,
     OrganizeSmartFoldersRequest, OrganizeSmartFoldersResponse,
     GenerateFormAppRequest, GenerateFormAppResponse,
-    GenerateEmbeddingsRequest, GenerateEmbeddingsResponse
+    GenerateEmbeddingsRequest, GenerateEmbeddingsResponse,
+    AutoOrganizeRequest, AutoOrganizeResponse,
+    ProcessPendingRequest, ProcessPendingResponse
 )
 from ..core.supabase_client import get_supabase_client
 from pydantic import BaseModel
@@ -162,6 +164,8 @@ document_service = DocumentProcessingOrchestrator(
     bucket_manager=BucketManager(get_supabase_client()),
     database_service=DatabaseService()
 )
+
+from ..services.auto_organize_service import auto_organize_service
 
 semantic_search_service = SemanticSearchService()
 organize_documents_service = OrganizeDocumentsService()
@@ -373,6 +377,51 @@ async def organize_smart_folders(request: OrganizeSmartFoldersRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Organize smart folders failed: {str(e)}"
+        )
+
+@analyze_router.post("/auto-organize-documents", response_model=AutoOrganizeResponse)
+async def auto_organize_documents(request: AutoOrganizeRequest):
+    """
+    Automatically organize all documents by document type.
+    Creates folders for each document type and assigns documents to them.
+    """
+    try:
+        logger.info(f"🗂️ Received auto-organize request for user: {request.userId}")
+        
+        result = await auto_organize_service.auto_organize_by_document_type(request.userId)
+        
+        logger.info(f"✅ Auto-organize completed: {result['documentsOrganized']} documents organized into {len(result['foldersCreated'])} folders")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error in auto_organize_documents endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Auto-organize documents failed: {str(e)}"
+        )
+
+@analyze_router.post("/process-pending-documents", response_model=ProcessPendingResponse)
+async def process_pending_documents(request: ProcessPendingRequest):
+    """
+    Process pending documents that haven't been analyzed yet.
+    Infers document type and prepares them for organization.
+    """
+    try:
+        logger.info(f"🔄 Received process pending request for user: {request.userId}")
+        
+        result = await auto_organize_service.process_pending_documents(
+            request.userId, 
+            request.documentIds
+        )
+        
+        logger.info(f"✅ Process pending completed: {result['processedCount']} documents processed")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error in process_pending_documents endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Process pending documents failed: {str(e)}"
         )
 
 @analyze_router.post("/generate-form-app", response_model=GenerateFormAppResponse)
@@ -795,8 +844,8 @@ async def get_document_types():
 @analyze_router.post("/ensure-bucket", response_model=EnsureBucketResponse)
 async def ensure_bucket(request: EnsureBucketRequest):
     """
-    Ensure a storage bucket exists for a document type.
-    Creates the bucket if it doesn't exist.
+    Ensure the documents storage bucket exists.
+    All documents use a single 'documents' bucket.
     """
     try:
         from ..core.supabase_client import get_supabase_client
@@ -804,7 +853,8 @@ async def ensure_bucket(request: EnsureBucketRequest):
         supabase = get_supabase_client()
         bucket_manager = BucketManager(supabase)
         
-        result = await bucket_manager.get_or_create_bucket(request.document_type)
+        # Always use the default 'documents' bucket
+        result = await bucket_manager.get_or_create_bucket()
         
         return EnsureBucketResponse(
             bucket_name=result["bucket_name"],
@@ -828,8 +878,8 @@ async def get_user_documents(user_id: str, document_type: Optional[str] = None):
         
         supabase = get_supabase_client()
         
-        # Build query - select all fields including storage_path
-        query = supabase.table('documents').select('id, user_id, file_name, file_type, file_size, storage_path, created_at, updated_at, extracted_text, processing_status, metadata, document_type').eq('user_id', user_id)
+        # Build query - select all fields including storage_path, is_deleted, deleted_at
+        query = supabase.table('documents').select('id, user_id, file_name, file_type, file_size, storage_path, created_at, updated_at, extracted_text, processing_status, metadata, document_type, is_deleted, deleted_at').eq('user_id', user_id)
         
         # Filter by document type if specified
         if document_type and document_type != 'all':
@@ -840,11 +890,34 @@ async def get_user_documents(user_id: str, document_type: Optional[str] = None):
         
         documents = response.data or []
         
+        # Fetch folder relationships for all documents
+        doc_ids = [doc['id'] for doc in documents]
+        folders_map = {}
+        
+        if doc_ids:
+            shortcuts_response = supabase.table('document_shortcuts').select('document_id, folder_id, smart_folders(id, name, folder_color, icon)').in_('document_id', doc_ids).execute()
+            for shortcut in (shortcuts_response.data or []):
+                doc_id = shortcut['document_id']
+                
+                if doc_id not in folders_map:
+                    folders_map[doc_id] = []
+                if shortcut.get('smart_folders'):
+                    folders_map[doc_id].append({
+                        'id': shortcut['smart_folders']['id'],
+                        'name': shortcut['smart_folders']['name'],
+                        'color': shortcut['smart_folders'].get('folder_color', '#6366f1'),
+                        'icon': shortcut['smart_folders'].get('icon', 'Folder')
+                    })
+
         # Group documents by type
         grouped = {}
         total_size = 0
         
         for doc in documents:
+            # Skip documents marked as deleted
+            if doc.get('is_deleted', False):
+                continue
+            
             doc_type = doc.get('document_type') or 'unknown'
             
             # Handle None or empty string
@@ -868,23 +941,25 @@ async def get_user_documents(user_id: str, document_type: Optional[str] = None):
             
             # Add public/signed URL for storage_path
             doc_with_url = doc.copy()
+            
+            # Add folders array
+            doc_with_url['folders'] = folders_map.get(doc['id'], [])
+            
             if doc.get('storage_path'):
                 try:
                     # Generate a signed URL (valid for 1 hour) since bucket is private
-                    response = supabase.storage.from_('documents').create_signed_url(
+                    url_response = supabase.storage.from_('documents').create_signed_url(
                         doc['storage_path'],
                         3600  # 1 hour expiry
                     )
                     
                     # Extract signed URL from response
-                    # Supabase returns: {'signedURL': 'https://...'}
-                    if isinstance(response, dict):
-                        doc_with_url['storage_url'] = response.get('signedURL') or response.get('signedUrl') or response.get('url')
-                    elif hasattr(response, 'get'):
-                        doc_with_url['storage_url'] = response.get('signedURL') or response.get('signedUrl')
+                    if isinstance(url_response, dict):
+                        doc_with_url['storage_url'] = url_response.get('signedURL') or url_response.get('signedUrl') or url_response.get('url')
+                    elif hasattr(url_response, 'get'):
+                        doc_with_url['storage_url'] = url_response.get('signedURL') or url_response.get('signedUrl')
                     else:
-                        # Response might be an object with .data attribute
-                        doc_with_url['storage_url'] = getattr(response, 'signedURL', None) or str(response)
+                        doc_with_url['storage_url'] = getattr(url_response, 'signedURL', None) or str(url_response)
                         
                     logger.info(f"Generated signed URL for {doc['file_name']}")
                         
@@ -910,6 +985,264 @@ async def get_user_documents(user_id: str, document_type: Optional[str] = None):
         
     except Exception as e:
         logger.error(f"Error fetching documents: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@analyze_router.get("/documents/{user_id}/deleted")
+async def get_deleted_documents(user_id: str):
+    """
+    Get all deleted documents (recycle bin) for a user.
+    """
+    try:
+        from ..core.supabase_client import get_supabase_client
+        
+        supabase = get_supabase_client()
+        logger.info(f"🗑️ Fetching deleted documents for user: {user_id}")
+        
+        # Get all DELETED documents for user where is_deleted = true
+        # Also include documents with NULL user_id (older documents)
+        response = supabase.table('documents').select('*').eq('is_deleted', True).or_(f'user_id.eq.{user_id},user_id.is.null').order('deleted_at', desc=True).execute()
+        
+        documents = response.data or []
+        logger.info(f"📊 Query returned {len(documents)} deleted documents")
+        logger.info(f"📋 Document IDs: {[d.get('id') for d in documents]}")
+        
+        # Process documents to add storage URLs and metadata
+        deleted_docs = []
+        for doc in documents:
+            doc_with_url = doc.copy()
+            
+            # Ensure metadata includes is_deleted flag
+            if doc_with_url.get('metadata'):
+                doc_with_url['metadata']['is_deleted'] = True
+            else:
+                doc_with_url['metadata'] = {'is_deleted': True}
+            
+            if doc.get('storage_path'):
+                try:
+                    url_response = supabase.storage.from_('documents').create_signed_url(doc['storage_path'], 3600)
+                    if isinstance(url_response, dict):
+                        doc_with_url['storage_url'] = url_response.get('signedURL') or url_response.get('signedUrl') or url_response.get('url')
+                except Exception as e:
+                    logger.warning(f"Failed to generate signed URL for {doc['storage_path']}: {e}")
+                    doc_with_url['storage_url'] = None
+            
+            deleted_docs.append(doc_with_url)
+        
+        logger.info(f"✅ Found {len(deleted_docs)} deleted documents for user {user_id}")
+        return {
+            'success': True,
+            'documents': deleted_docs,
+            'total_documents': len(deleted_docs),
+            'total_size': sum(doc.get('file_size', 0) for doc in deleted_docs)
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching deleted documents: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@analyze_router.get("/folders/{folder_id}/documents")
+async def get_documents_in_folder(folder_id: str):
+    """
+    Get all documents assigned to a specific smart folder.
+    """
+    try:
+        logger.info(f"📂 Fetching documents for folder: {folder_id}")
+        from ..core.supabase_client import get_supabase_client
+        supabase = get_supabase_client()
+
+        # Verify folder exists
+        logger.info(f"Verifying folder exists: {folder_id}")
+        folder_resp = supabase.table('smart_folders').select('id, name, user_id, folder_color, icon, document_count').eq('id', folder_id).single().execute()
+        if not folder_resp.data:
+            logger.error(f"Folder not found: {folder_id}")
+            raise HTTPException(status_code=404, detail='Folder not found')
+        folder = folder_resp.data
+        logger.info(f"Found folder: {folder['name']} with {folder.get('document_count', 0)} documents")
+
+        # Get document IDs from shortcuts
+        logger.info(f"Fetching document shortcuts for folder: {folder_id}")
+        shortcuts_resp = supabase.table('document_shortcuts').select('document_id').eq('folder_id', folder_id).execute()
+        document_ids = [s['document_id'] for s in (shortcuts_resp.data or [])]
+        logger.info(f"Found {len(document_ids)} document shortcuts: {document_ids}")
+
+        documents = []
+        total_size = 0
+        if document_ids:
+            logger.info(f"Fetching document details for {len(document_ids)} documents")
+            docs_resp = supabase.table('documents').select('id, user_id, file_name, file_type, file_size, storage_path, created_at, updated_at, extracted_text, processing_status, metadata, document_type, is_deleted, deleted_at').in_('id', document_ids).order('created_at', desc=True).execute()
+            docs = docs_resp.data or []
+            logger.info(f"Retrieved {len(docs)} documents from database")
+
+            for doc in docs:
+                # Skip documents marked as deleted
+                if doc.get('is_deleted', False):
+                    logger.info(f"Skipping deleted document in folder view: {doc.get('id')}")
+                    continue
+
+                doc_with_url = doc.copy()
+                # Add this folder info
+                doc_with_url['folders'] = [{
+                    'id': folder['id'],
+                    'name': folder['name'],
+                    'color': folder.get('folder_color', '#6366f1'),
+                    'icon': folder.get('icon', 'Folder')
+                }]
+
+                if doc.get('storage_path'):
+                    try:
+                        response = supabase.storage.from_('documents').create_signed_url(doc['storage_path'], 3600)
+                        if isinstance(response, dict):
+                            doc_with_url['storage_url'] = response.get('signedURL') or response.get('signedUrl') or response.get('url')
+                        elif hasattr(response, 'get'):
+                            doc_with_url['storage_url'] = response.get('signedURL') or response.get('signedUrl')
+                        else:
+                            doc_with_url['storage_url'] = getattr(response, 'signedURL', None) or str(response)
+                    except Exception as e:
+                        logger.error(f"Failed to generate signed URL for {doc['storage_path']}: {str(e)}")
+                        doc_with_url['storage_url'] = None
+
+                documents.append(doc_with_url)
+                total_size += doc.get('file_size', 0)
+
+        logger.info(f"✅ Returning {len(documents)} documents for folder {folder['name']}, total size: {total_size}")
+        return {
+            'success': True,
+            'folder': folder,
+            'documents': documents,
+            'total_documents': len(documents),
+            'total_size': total_size
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error fetching documents for folder {folder_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@analyze_router.delete("/documents/{document_id}")
+async def delete_document(document_id: str):
+    """
+    Soft delete a document by marking it as deleted using is_deleted flag.
+    """
+    try:
+        from ..core.supabase_client import get_supabase_client
+        
+        supabase = get_supabase_client()
+        logger.info(f"Attempting to delete document: {document_id}")
+        
+        # First, get the document to verify it exists
+        doc_resp = supabase.table('documents').select('id').eq('id', document_id).single().execute()
+        if not doc_resp.data:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        # Update document with is_deleted flag and deleted_at timestamp
+        supabase.table('documents').update({
+            'is_deleted': True,
+            'deleted_at': datetime.utcnow().isoformat(),
+            'updated_at': datetime.utcnow().isoformat()
+        }).eq('id', document_id).execute()
+        
+        logger.info(f"Document {document_id} marked as deleted successfully")
+        
+        return {
+            'success': True,
+            'message': 'Document moved to recycle bin',
+            'document_id': document_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error deleting document {document_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@analyze_router.post("/documents/{document_id}/restore")
+async def restore_document(document_id: str):
+    """
+    Restore a soft-deleted document from recycle bin.
+    """
+    try:
+        from ..core.supabase_client import get_supabase_client
+        from datetime import datetime
+        
+        supabase = get_supabase_client()
+        logger.info(f"🔄 Restoring document: {document_id}")
+        
+        # Update document to unmark as deleted
+        response = supabase.table('documents').update({
+            'is_deleted': False,
+            'deleted_at': None,
+            'updated_at': datetime.utcnow().isoformat()
+        }).eq('id', document_id).execute()
+        
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        logger.info(f"✅ Document {document_id} restored successfully")
+        
+        return {
+            'success': True,
+            'message': 'Document restored from recycle bin',
+            'document_id': document_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error restoring document {document_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@analyze_router.delete("/documents/{document_id}/permanent")
+async def permanent_delete_document(document_id: str):
+    """
+    Permanently delete a document (hard delete).
+    This action cannot be undone.
+    """
+    try:
+        from ..core.supabase_client import get_supabase_client
+        
+        supabase = get_supabase_client()
+        logger.info(f"🗑️ Permanently deleting document: {document_id}")
+        
+        # Get document to delete from storage
+        doc_response = supabase.table('documents').select('storage_path').eq('id', document_id).execute()
+        
+        if not doc_response.data:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        storage_path = doc_response.data[0].get('storage_path')
+        
+        # Delete from storage if path exists
+        if storage_path:
+            try:
+                supabase.storage.from_('documents').remove([storage_path])
+                logger.info(f"📦 Deleted file from storage: {storage_path}")
+            except Exception as storage_error:
+                logger.warning(f"Storage deletion failed (may not exist): {storage_error}")
+        
+        # Delete from database
+        response = supabase.table('documents').delete().eq('id', document_id).execute()
+        
+        if not response.data:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        logger.info(f"✅ Document {document_id} permanently deleted")
+        
+        return {
+            'success': True,
+            'message': 'Document permanently deleted',
+            'document_id': document_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error permanently deleting document {document_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

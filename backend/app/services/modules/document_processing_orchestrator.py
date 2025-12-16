@@ -84,7 +84,7 @@ class DocumentProcessingOrchestrator:
             
             # Get document type info
             document_type = type_result.get("document_type", "unknown")
-            bucket_name = type_result.get("bucket_name", "unknown-documents")
+            bucket_name = "documents"  # All documents use single bucket
             
             logger.info(f"[{processing_id}] Detected type: {document_type} (confidence: {type_result.get('confidence', 0):.2f})")
             
@@ -237,18 +237,17 @@ class DocumentProcessingOrchestrator:
         filename: str,
         user_id: str,
         document_type: str,
-        bucket_name: str
+        bucket_name: str = None
     ) -> Dict[str, Any]:
-        """Upload document to type-specific bucket."""
+        """Upload document to the documents bucket."""
         try:
             # Generate unique file path
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             safe_filename = "".join(c for c in filename if c.isalnum() or c in ".-_")
             file_path = f"{user_id}/{timestamp}_{safe_filename}"
             
-            # Ensure bucket exists and upload
+            # Upload to 'documents' bucket (bucket_name parameter is ignored)
             result = await self.bucket_manager.upload_to_bucket(
-                bucket_name=bucket_name,
                 file_path=file_path,
                 file_bytes=pdf_bytes,
                 content_type="application/pdf"

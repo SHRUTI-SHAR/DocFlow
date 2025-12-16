@@ -16,9 +16,9 @@ import type { Document, ViewMode, SortOrder } from './types';
 
 export function SimplifyDrive() {
   // Documents & filtering
-  const { documents, loading, stats, refetch } = useDocuments();
-  const [searchQuery, setSearchQuery] = useState('');
   const [selectedFolder, setSelectedFolder] = useState('all');
+  const { documents, loading, stats, refetch } = useDocuments({ selectedFolder });
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState('all');
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -133,7 +133,10 @@ export function SimplifyDrive() {
             viewMode={viewMode}
             aiInsightsEnabled={aiInsightsEnabled}
             selectedFolder={selectedFolder}
-            onFolderSelect={setSelectedFolder}
+            onFolderSelect={(folderId) => {
+              console.log('📁 SimplifyDrive: Folder selected:', folderId);
+              setSelectedFolder(folderId);
+            }}
             onDocumentClick={handleViewDocument}
             onRefresh={refetch}
           />

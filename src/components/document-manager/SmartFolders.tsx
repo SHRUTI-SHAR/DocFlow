@@ -2,6 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { 
   Folder, 
   FolderOpen, 
@@ -23,12 +30,16 @@ import {
   Music,
   File,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  Loader2,
+  Edit2,
+  X
 } from 'lucide-react';
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { CreateFolderModal } from './CreateFolderModal';
 import { CustomizeRulesModal } from './CustomizeRulesModal';
+import { API_BASE_URL } from "@/config/api";
 
 interface SmartFolder {
   id: string;
@@ -66,10 +77,19 @@ export const SmartFolders: React.FC<SmartFoldersProps> = ({
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showCustomizeModal, setShowCustomizeModal] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [editingFolder, setEditingFolder] = useState<SmartFolder | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
     fetchSmartFolders();
+    
+    // Set up interval to refresh folder counts every 3 seconds when component is mounted
+    const interval = setInterval(() => {
+      fetchSmartFolders();
+    }, 3000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   const fetchSmartFolders = async () => {
@@ -93,7 +113,26 @@ export const SmartFolders: React.FC<SmartFoldersProps> = ({
         return;
       }
 
-      setFolders(data || []);
+      // Fetch actual document counts from document_shortcuts
+      const folderIds = data?.map(f => f.id) || [];
+      const { data: shortcuts } = await supabase
+        .from('document_shortcuts')
+        .select('folder_id')
+        .in('folder_id', folderIds);
+
+      // Count documents per folder
+      const countsByFolder: { [key: string]: number } = {};
+      shortcuts?.forEach(shortcut => {
+        countsByFolder[shortcut.folder_id] = (countsByFolder[shortcut.folder_id] || 0) + 1;
+      });
+
+      // Update folders with actual counts
+      const foldersWithCounts = data?.map(folder => ({
+        ...folder,
+        document_count: countsByFolder[folder.id] || 0
+      })) || [];
+
+      setFolders(foldersWithCounts);
     } catch (error) {
       console.error('Error:', error);
       // Don't show error toast if table doesn't exist yet
@@ -184,71 +223,96 @@ export const SmartFolders: React.FC<SmartFoldersProps> = ({
     }
   };
 
-  const createDefaultFolders = async () => {
+  const deleteFolder = async (folderId: string) => {
     try {
-      const { data: user } = await supabase.auth.getUser();
-      if (!user.user) return;
+      const folder = folders.find(f => f.id === folderId);
+      if (!folder) return;
 
-      const defaultFolders = [
-        {
-          user_id: user.user.id,
-          name: 'Important Documents',
-          description: 'AI-identified high importance documents',
-          color: '#dc2626',
-          icon: 'Star',
-          is_smart: true,
-          ai_criteria: { importance_score: { min: 0.8 } },
-          order_index: 1
-        },
-        {
-          user_id: user.user.id,
-          name: 'Recent Uploads',
-          description: 'Documents uploaded in the last 7 days',
-          color: '#2563eb',
-          icon: 'Clock',
-          is_smart: true,
-          ai_criteria: { created_at: { days: 7 } },
-          order_index: 2
-        },
-        {
-          user_id: user.user.id,
-          name: 'Contracts',
-          description: 'Legal contracts and agreements',
-          color: '#059669',
-          icon: 'Briefcase',
-          is_smart: true,
-          ai_criteria: { content_type: ['contract', 'agreement', 'legal'] },
-          order_index: 3
-        },
-        {
-          user_id: user.user.id,
-          name: 'Financial Documents',
-          description: 'Invoices, receipts, and financial records',
-          color: '#7c3aed',
-          icon: 'Receipt',
-          is_smart: true,
-          ai_criteria: { content_type: ['invoice', 'receipt', 'financial'] },
-          order_index: 4
-        }
-      ];
-
+      // Delete from database
       const { error } = await supabase
         .from('smart_folders')
-        .insert(defaultFolders);
+        .delete()
+        .eq('id', folderId);
 
-      if (error) {
-        console.error('Error creating default folders:', error);
+      if (error) throw error;
+
+      toast({
+        title: "Folder Deleted",
+        description: `${folder.name} has been deleted`,
+      });
+
+      // If the deleted folder was selected, switch to 'all'
+      if (selectedFolder === folderId) {
+        onFolderSelect('all');
+      }
+
+      // Refresh folders list
+      fetchSmartFolders();
+      setDeleteConfirmId(null);
+    } catch (error) {
+      console.error('Error deleting folder:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete folder",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const [isOrganizing, setIsOrganizing] = useState(false);
+
+  const createSmartFoldersFromDocuments = async () => {
+    try {
+      setIsOrganizing(true);
+      const { data: user } = await supabase.auth.getUser();
+      if (!user.user) {
+        toast({
+          title: "Error",
+          description: "Please log in to organize documents",
+          variant: "destructive",
+        });
         return;
       }
 
-      toast({
-        title: "Smart Folders Created",
-        description: "AI-powered folders have been set up for you",
+      // Call the backend API to auto-organize documents
+      const response = await fetch(`${API_BASE_URL}/api/v1/auto-organize-documents`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.user.id
+        }),
       });
 
-      fetchSmartFolders();
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+        throw new Error(errorData.detail || 'Failed to organize documents');
+      }
+
+      const result = await response.json();
+
+      if (result.success) {
+        toast({
+          title: "Smart Folders Created",
+          description: result.message || `Organized ${result.documentsOrganized} documents into ${result.foldersCreated?.length || 0} folders`,
+        });
+        
+        // Refresh folders list
+        fetchSmartFolders();
+      } else {
+        throw new Error(result.message || 'Organization failed');
+      }
+
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error organizing documents:', error);
+      toast({
+        title: "Organization Failed",
+        description: error instanceof Error ? error.message : "Failed to organize documents",
+        variant: "destructive",
+      });
+    } finally {
+      setIsOrganizing(false);
     }
   };
 
@@ -322,8 +386,15 @@ export const SmartFolders: React.FC<SmartFoldersProps> = ({
                 Let AI organize your documents automatically
               </p>
             </div>
-            <Button onClick={createDefaultFolders} size="sm">
-              Create Smart Folders
+            <Button onClick={createSmartFoldersFromDocuments} size="sm" disabled={isOrganizing}>
+              {isOrganizing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Organizing...
+                </>
+              ) : (
+                'Create Smart Folders'
+              )}
             </Button>
           </div>
         </Card>
@@ -384,6 +455,40 @@ export const SmartFolders: React.FC<SmartFoldersProps> = ({
                   </Badge>
                 </div>
               </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={(e: any) => e.stopPropagation()}
+                  >
+                    <MoreHorizontal className="w-4 h-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" onClick={(e: any) => e.stopPropagation()}>
+                  <DropdownMenuItem
+                    onClick={(e: any) => {
+                      e.stopPropagation();
+                      setEditingFolder(folder);
+                    }}
+                  >
+                    <Edit2 className="w-4 h-4 mr-2" />
+                    Edit Folder
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={(e: any) => {
+                      e.stopPropagation();
+                      setDeleteConfirmId(folder.id);
+                    }}
+                    className="text-red-600"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete Folder
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           ))}
         </div>
@@ -393,7 +498,10 @@ export const SmartFolders: React.FC<SmartFoldersProps> = ({
       <Button
         variant={selectedFolder === 'recycle-bin' ? 'default' : 'ghost'}
         className="w-full justify-start h-auto p-3"
-        onClick={() => onFolderSelect('recycle-bin')}
+        onClick={() => {
+          console.log('🗑️ Recycle Bin clicked! Calling onFolderSelect...');
+          onFolderSelect('recycle-bin');
+        }}
       >
         <div className="flex items-center gap-3">
           <div className="p-1 bg-red-100 dark:bg-red-900 rounded">
@@ -429,6 +537,41 @@ export const SmartFolders: React.FC<SmartFoldersProps> = ({
         onClose={() => setShowCreateModal(false)}
         onFolderCreated={fetchSmartFolders}
       />
+
+      {/* Edit Folder Modal */}
+      {editingFolder && (
+        <CreateFolderModal
+          isOpen={true}
+          onClose={() => setEditingFolder(null)}
+          onFolderCreated={fetchSmartFolders}
+          initialData={editingFolder}
+        />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setDeleteConfirmId(null)}>
+          <div className="bg-background p-6 rounded-lg shadow-lg max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-100 dark:bg-red-900 rounded-full">
+                <Trash2 className="w-5 h-5 text-red-600" />
+              </div>
+              <h3 className="text-lg font-semibold">Delete Folder?</h3>
+            </div>
+            <p className="text-muted-foreground mb-6">
+              Are you sure you want to delete "{folders.find(f => f.id === deleteConfirmId)?.name}"? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={() => deleteFolder(deleteConfirmId)}>
+                Delete Folder
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Customize Rules Modal */}
       <CustomizeRulesModal

@@ -10,6 +10,7 @@ export const api = {
       const { data, error } = await supabase
         .from('documents')
         .select('*')
+        .eq('is_deleted', false)
         .order('created_at', { ascending: false });
       
       if (error) throw handleSupabaseError(error);

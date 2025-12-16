@@ -19,13 +19,17 @@ export function useDocumentFiltering({
   sortOrder,
 }: UseDocumentFilteringOptions) {
   const filteredDocuments = useMemo(() => {
+    console.log('🔍 useDocumentFiltering: Input documents:', documents.length, 'selectedFolder:', selectedFolder);
+    
     let filtered = documents.filter(doc => {
       const matchesSearch = searchQuery === '' || 
         doc.file_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         doc.extracted_text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         doc.insights?.summary?.toLowerCase().includes(searchQuery.toLowerCase());
 
+      // Special handling for recycle-bin folder - don't filter, show all deleted documents
       const matchesFolder = selectedFolder === 'all' || 
+        selectedFolder === 'recycle-bin' ||
         doc.folders?.some(folder => folder.id === selectedFolder);
 
       const matchesTag = selectedTag === 'all' || 
@@ -66,6 +70,7 @@ export function useDocumentFiltering({
       }
     });
 
+    console.log('🔍 useDocumentFiltering: Filtered documents:', filtered.length);
     return filtered;
   }, [documents, searchQuery, selectedFolder, selectedTag, sortBy, sortOrder]);
 

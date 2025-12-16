@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,8 +12,12 @@ import {
   Tag,
   ArrowRight,
   Star,
-  Brain
+  Brain,
+  Loader2
 } from 'lucide-react';
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import { API_BASE_URL } from "@/config/api";
 
 interface Document {
   id: string;
@@ -49,12 +53,115 @@ interface Recommendation {
   title: string;
   description: string;
   action?: string;
+  actionHandler?: () => Promise<void>;
   priority: 'high' | 'medium' | 'low';
   icon: React.ReactNode;
   documents?: Document[];
 }
 
 export const AIRecommendations: React.FC<AIRecommendationsProps> = ({ documents }) => {
+  const [processingAction, setProcessingAction] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  const handleProcessPending = async (documentIds: string[]) => {
+    try {
+      setProcessingAction('Process Now');
+      const { data: user } = await supabase.auth.getUser();
+      if (!user.user) {
+        toast({
+          title: "Error",
+          description: "Please log in to process documents",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/process-pending-documents`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.user.id,
+          documentIds: documentIds
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to process documents');
+      }
+
+      const result = await response.json() as { message?: string; processedCount?: number };
+
+      toast({
+        title: "Documents Processed",
+        description: result.message || `Processed ${result.processedCount || 0} documents`,
+      });
+
+      // Optionally trigger a refresh of the documents list
+      window.location.reload();
+
+    } catch (error) {
+      console.error('Error processing documents:', error);
+      toast({
+        title: "Processing Failed",
+        description: error instanceof Error ? error.message : "Failed to process documents",
+        variant: "destructive",
+      });
+    } finally {
+      setProcessingAction(null);
+    }
+  };
+
+  const handleAutoOrganize = async () => {
+    try {
+      setProcessingAction('Auto-Organize');
+      const { data: user } = await supabase.auth.getUser();
+      if (!user.user) {
+        toast({
+          title: "Error",
+          description: "Please log in to organize documents",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/auto-organize-documents`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.user.id
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to organize documents');
+      }
+
+      const result = await response.json() as { message?: string; documentsOrganized?: number };
+
+      toast({
+        title: "Documents Organized",
+        description: result.message || `Organized ${result.documentsOrganized || 0} documents`,
+      });
+
+      // Refresh the page to show updated folders
+      window.location.reload();
+
+    } catch (error) {
+      console.error('Error organizing documents:', error);
+      toast({
+        title: "Organization Failed",
+        description: error instanceof Error ? error.message : "Failed to organize documents",
+        variant: "destructive",
+      });
+    } finally {
+      setProcessingAction(null);
+    }
+  };
+
   const generateRecommendations = (): Recommendation[] => {
     const recommendations: Recommendation[] = [];
 
@@ -151,7 +258,8 @@ export const AIRecommendations: React.FC<AIRecommendationsProps> = ({ documents 
         action: 'Process Now',
         priority: 'high',
         icon: <AlertTriangle className="w-4 h-4 text-red-500" />,
-        documents: recentUnanalyzed
+        documents: recentUnanalyzed,
+        actionHandler: () => handleProcessPending(recentUnanalyzed.map(d => d.id))
       });
     }
 
@@ -168,7 +276,8 @@ export const AIRecommendations: React.FC<AIRecommendationsProps> = ({ documents 
           description: 'Many documents could benefit from AI-powered auto-organization',
           action: 'Auto-Organize',
           priority: 'low',
-          icon: <Brain className="w-4 h-4 text-purple-500" />
+          icon: <Brain className="w-4 h-4 text-purple-500" />,
+          actionHandler: () => handleAutoOrganize()
         });
       }
     }
@@ -271,9 +380,20 @@ export const AIRecommendations: React.FC<AIRecommendationsProps> = ({ documents 
                   size="sm" 
                   variant="outline" 
                   className="w-full justify-between text-xs h-7"
+                  onClick={() => rec.actionHandler?.()}
+                  disabled={processingAction !== null}
                 >
-                  {rec.action}
-                  <ArrowRight className="w-3 h-3" />
+                  {processingAction === rec.action ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      {rec.action}
+                      <ArrowRight className="w-3 h-3" />
+                    </>
+                  )}
                 </Button>
               )}
             </CardContent>

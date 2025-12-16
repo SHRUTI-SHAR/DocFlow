@@ -315,7 +315,7 @@ class DatabaseService:
             # All embeddings are stored in document_chunks table only
             logger.debug("📝 Embeddings will be stored in document_chunks table")
             
-            # Insert document
+            # Insert document (no duplicate check needed - controlled by caller)
             document_response = self.supabase.table("documents").insert(document).execute()
             
             if not document_response.data:

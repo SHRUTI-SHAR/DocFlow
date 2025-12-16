@@ -34,6 +34,15 @@ interface CreateFolderModalProps {
   isOpen: boolean;
   onClose: () => void;
   onFolderCreated: () => void;
+  initialData?: {
+    id: string;
+    name: string;
+    description?: string;
+    color?: string;
+    icon?: string;
+    is_smart?: boolean;
+    ai_criteria?: any;
+  };
 }
 
 const iconOptions = [
@@ -67,17 +76,18 @@ const colorOptions = [
 export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
   isOpen,
   onClose,
-  onFolderCreated
+  onFolderCreated,
+  initialData
 }) => {
   const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    color: '#2563eb',
-    icon: 'Folder',
-    isSmart: false,
+    name: initialData?.name || '',
+    description: initialData?.description || '',
+    color: initialData?.color || '#2563eb',
+    icon: initialData?.icon || 'Folder',
+    isSmart: initialData?.is_smart || false,
     smartCriteria: {
-      contentTypes: [] as string[],
-      importanceScore: 0,
+      contentTypes: initialData?.ai_criteria?.content_type || [] as string[],
+      importanceScore: initialData?.ai_criteria?.importance_score?.min ? initialData.ai_criteria.importance_score.min * 100 : 0,
       daysOld: 0,
       keywords: [] as string[]
     }
@@ -125,31 +135,50 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
         };
       }
 
-      const { data, error } = await supabase
-        .from('smart_folders')
-        .insert({
-          user_id: user.user.id,
-          name: formData.name.trim(),
-          description: formData.description.trim(),
-          color: formData.color,
-          icon: formData.icon,
-          is_smart: formData.isSmart,
-          ai_criteria: aiCriteria,
-          document_count: 0
-        })
-        .select();
+      const folderData = {
+        user_id: user.user.id,
+        name: formData.name.trim(),
+        description: formData.description.trim(),
+        color: formData.color,
+        folder_color: formData.color, // For backward compatibility
+        icon: formData.icon,
+        is_smart: formData.isSmart,
+        ai_criteria: aiCriteria,
+        document_count: 0
+      };
+
+      let data, error;
+
+      if (initialData?.id) {
+        // Update existing folder
+        const result = await supabase
+          .from('smart_folders')
+          .update(folderData)
+          .eq('id', initialData.id)
+          .select();
+        data = result.data;
+        error = result.error;
+      } else {
+        // Create new folder
+        const result = await supabase
+          .from('smart_folders')
+          .insert(folderData)
+          .select();
+        data = result.data;
+        error = result.error;
+      }
 
       if (error) {
         throw error;
       }
 
       toast({
-        title: "Folder Created",
-        description: `${formData.name} has been created successfully`,
+        title: initialData ? "Folder Updated" : "Folder Created",
+        description: `${formData.name} has been ${initialData ? 'updated' : 'created'} successfully`,
       });
 
-      // If it's a smart folder, trigger organization of existing documents
-      if (formData.isSmart && data && data[0]) {
+      // If it's a smart folder and newly created, trigger organization of existing documents
+      if (formData.isSmart && data && data[0] && !initialData) {
         try {
           const fastApiUrl = (import.meta as any).env.VITE_FASTAPI_URL;
           if (!fastApiUrl) throw new Error('VITE_FASTAPI_URL is required');
@@ -247,9 +276,11 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Create New Folder</DialogTitle>
+          <DialogTitle>{initialData ? 'Edit Folder' : 'Create New Folder'}</DialogTitle>
           <DialogDescription>
-            Create a regular folder or an AI-powered smart folder that automatically organizes documents.
+            {initialData 
+              ? 'Update folder settings and organization rules'
+              : 'Create a regular folder or an AI-powered smart folder that automatically organizes documents.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -442,7 +473,7 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
               Cancel
             </Button>
             <Button type="submit" disabled={isCreating}>
-              {isCreating ? 'Creating...' : 'Create Folder'}
+              {isCreating ? (initialData ? 'Updating...' : 'Creating...') : (initialData ? 'Update Folder' : 'Create Folder')}
             </Button>
           </div>
         </form>

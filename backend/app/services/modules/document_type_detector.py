@@ -291,7 +291,7 @@ Examples: pan-card, aadhaar-card, passport, bank-statement, invoice, salary-slip
             "icon": "FileText",
             "color": "#6366f1",
             "confidence": confidence,
-            "bucket_name": f"{doc_type}-documents"
+            "bucket_name": "documents"  # All documents use single bucket
         }
 
         if error:

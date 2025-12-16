@@ -25,18 +25,6 @@ export function DocumentsView({
   onDocumentClick,
   onRefresh,
 }: DocumentsViewProps) {
-  if (documents.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16">
-        <FileText className="h-16 w-16 text-muted-foreground/50 mb-4" />
-        <h3 className="text-lg font-medium mb-2">No documents yet</h3>
-        <p className="text-muted-foreground text-center max-w-md">
-          Upload your first document to get started with SimplifyDrive
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col lg:flex-row gap-6 p-4">
       {aiInsightsEnabled && (
@@ -50,13 +38,22 @@ export function DocumentsView({
       )}
 
       <main className="flex-1 min-w-0">
-        {viewMode === 'grid' ? (
+        {documents.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16">
+            <FileText className="h-16 w-16 text-muted-foreground/50 mb-4" />
+            <h3 className="text-lg font-medium mb-2">No documents yet</h3>
+            <p className="text-muted-foreground text-center max-w-md">
+              Upload your first document to get started with SimplifyDrive
+            </p>
+          </div>
+        ) : viewMode === 'grid' ? (
           <DocumentGrid 
             documents={documents}
             onDocumentClick={(doc) => {
               const fullDoc = documents.find(d => d.id === doc.id);
               if (fullDoc) onDocumentClick?.(fullDoc);
             }}
+            onRefresh={onRefresh}
           />
         ) : (
           <DocumentList 
@@ -65,6 +62,7 @@ export function DocumentsView({
               const fullDoc = documents.find(d => d.id === doc.id);
               if (fullDoc) onDocumentClick?.(fullDoc);
             }}
+            onRefresh={onRefresh}
           />
         )}
       </main>

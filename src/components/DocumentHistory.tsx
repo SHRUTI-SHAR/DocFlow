@@ -52,6 +52,7 @@ export const DocumentHistory: React.FC = () => {
           .select('*')
           .eq('user_id', user.user.id)
           .eq('processing_status', 'completed')
+          .eq('is_deleted', false)
           .order('created_at', { ascending: false });
 
         if (error) {

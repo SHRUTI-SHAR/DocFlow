@@ -8,10 +8,11 @@ const SUPABASE_URL = 'https://nvdkgfptnqardtxlqoym.supabase.co';
 interface UseDocumentsOptions {
   sortBy?: string;
   sortOrder?: SortOrder;
+  selectedFolder?: string;
 }
 
 export function useDocuments(options: UseDocumentsOptions = {}) {
-  const { sortBy = 'created_at', sortOrder = 'desc' } = options;
+  const { sortBy = 'created_at', sortOrder = 'desc', selectedFolder = 'all' } = options;
   
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,11 +23,83 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
       const { data: user } = await supabase.auth.getUser();
       if (!user.user) return;
 
-      const { data: documentsData, error } = await (supabase
+      console.log('📊 useDocuments: Fetching documents for folder:', selectedFolder);
+
+      // If recycle bin is selected, fetch deleted documents via API
+      if (selectedFolder === 'recycle-bin') {
+        console.log('🗑️ Fetching deleted documents from API...');
+        const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+        const response = await fetch(`${API_BASE_URL}/api/v1/documents/${user.user.id}/deleted`);
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch deleted documents');
+        }
+        
+        const data = await response.json();
+        console.log('🗑️ Deleted documents response:', data);
+        
+        const processedDocuments: Document[] = (data.documents || []).map((doc: any) => {
+          const displayName = doc.file_name || doc.original_name || doc.name || doc.file_path?.split('/').pop() || 'Unknown';
+          
+          return {
+            id: doc.id,
+            file_name: displayName,
+            file_type: doc.document_type || doc.mime_type || doc.file_type || 'unknown',
+            file_size: doc.file_size || 0,
+            created_at: doc.created_at,
+            updated_at: doc.updated_at,
+            extracted_text: doc.extracted_text || '',
+            processing_status: doc.processing_status || 'completed',
+            metadata: { ...doc.metadata, is_deleted: true },
+            storage_url: doc.storage_url,
+            storage_path: doc.storage_path,
+            insights: undefined,
+            tags: [],
+            folders: []
+          };
+        });
+        
+        console.log('🗑️ Processed deleted documents:', processedDocuments.length);
+        setDocuments(processedDocuments);
+        return;
+      }
+
+      // Otherwise fetch regular (non-deleted) documents
+      let query = supabase
         .from('documents')
         .select('*')
         .or(`uploaded_by.eq.${user.user.id},user_id.eq.${user.user.id}`)
-        .order('created_at', { ascending: false }) as any);
+        .eq('is_deleted', false);
+
+      // If a specific folder is selected (not 'all' or special folders), filter by folder
+      if (selectedFolder && selectedFolder !== 'all' && selectedFolder !== 'media-browser') {
+        console.log('📁 Fetching documents for specific folder:', selectedFolder);
+        
+        // First, get document IDs that belong to this folder from document_shortcuts
+        const { data: shortcuts, error: shortcutsError } = await supabase
+          .from('document_shortcuts')
+          .select('document_id')
+          .eq('folder_id', selectedFolder);
+
+        if (shortcutsError) {
+          console.error('Error fetching folder shortcuts:', shortcutsError);
+        }
+
+        const documentIds = shortcuts?.map(s => s.document_id) || [];
+        console.log('📁 Document IDs in folder:', documentIds);
+
+        if (documentIds.length === 0) {
+          // No documents in this folder
+          setDocuments([]);
+          setLoading(false);
+          return;
+        }
+
+        // Filter to only show documents in this folder
+        query = query.in('id', documentIds);
+      }
+
+      const { data: documentsData, error } = await (query.order('created_at', { ascending: false }) as any);
 
       if (error) {
         console.error('Error fetching documents:', error);
@@ -36,6 +109,37 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
           variant: "destructive",
         });
         return;
+      }
+
+      // Fetch folder relationships for all documents
+      const documentIds = documentsData?.map((doc: any) => doc.id) || [];
+      let foldersByDocument: { [key: string]: any[] } = {};
+      
+      if (documentIds.length > 0) {
+        const { data: shortcuts } = await supabase
+          .from('document_shortcuts')
+          .select(`
+            document_id,
+            folder_id,
+            smart_folders (
+              id,
+              name,
+              color,
+              icon,
+              document_count
+            )
+          `)
+          .in('document_id', documentIds);
+
+        // Group folders by document ID
+        shortcuts?.forEach((shortcut: any) => {
+          if (!foldersByDocument[shortcut.document_id]) {
+            foldersByDocument[shortcut.document_id] = [];
+          }
+          if (shortcut.smart_folders) {
+            foldersByDocument[shortcut.document_id].push(shortcut.smart_folders);
+          }
+        });
       }
 
       const processedDocuments: Document[] = (documentsData || []).map((doc: any) => {
@@ -55,10 +159,11 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
           storage_path: doc.storage_path,
           insights: undefined,
           tags: [],
-          folders: []
+          folders: foldersByDocument[doc.id] || []
         };
       });
 
+      console.log('📊 Processed documents with folders:', processedDocuments);
       setDocuments(processedDocuments);
     } catch (error) {
       console.error('Error:', error);
@@ -70,11 +175,12 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, selectedFolder]);
 
   useEffect(() => {
+    console.log('🔄 useDocuments: useEffect triggered, selectedFolder:', selectedFolder);
     fetchDocuments();
-  }, [fetchDocuments]);
+  }, [fetchDocuments, selectedFolder]);
 
   const stats: DocumentStats = useMemo(() => {
     const totalDocs = documents.length;

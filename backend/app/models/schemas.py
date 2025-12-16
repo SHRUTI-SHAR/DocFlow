@@ -120,6 +120,40 @@ class OrganizeSmartFoldersResponse(BaseModel):
     organizationResults: List[OrganizeSmartFoldersResult]
     message: str
 
+# Auto-Organize Documents by Type Models
+class AutoOrganizeRequest(BaseModel):
+    userId: str
+
+class FolderCreated(BaseModel):
+    folderId: str
+    folderName: str
+    documentType: str
+    documentCount: int
+    color: str
+
+class AutoOrganizeResponse(BaseModel):
+    success: bool
+    foldersCreated: List[FolderCreated]
+    documentsOrganized: int
+    message: str
+
+# Process Pending Documents Models
+class ProcessPendingRequest(BaseModel):
+    userId: str
+    documentIds: Optional[List[str]] = None
+
+class ProcessedDocument(BaseModel):
+    documentId: str
+    fileName: str
+    documentType: str
+    status: str
+
+class ProcessPendingResponse(BaseModel):
+    success: bool
+    processedCount: int
+    documents: List[ProcessedDocument]
+    message: str
+
 # Generate Form App Models
 class FormField(BaseModel):
     id: str

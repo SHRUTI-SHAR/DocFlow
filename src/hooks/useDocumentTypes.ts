@@ -80,7 +80,7 @@ export const useDocumentTypes = (): UseDocumentTypesResult => {
         ).join(' '),
         icon: getIconForType(typeName),
         color: getColorForType(typeName),
-        bucket_name: `${typeName}-documents`,
+        bucket_name: 'documents', // All documents use single bucket
         document_count: count
       }));
 

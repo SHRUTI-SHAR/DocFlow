@@ -1,20 +1,23 @@
 """
-Dynamic Bucket Manager Service
-Manages Supabase storage buckets dynamically based on document types
+Bucket Manager Service
+Manages Supabase storage bucket for documents.
+All documents are stored in a single 'documents' bucket.
 """
 
 import logging
-import re
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any
 from supabase import Client
 
 logger = logging.getLogger(__name__)
 
+# Single bucket for all documents
+DEFAULT_BUCKET = "documents"
+
 
 class BucketManager:
     """
-    Manages dynamic Supabase storage buckets for different document types.
-    Creates buckets on-demand when new document types are detected.
+    Manages Supabase storage bucket for documents.
+    All documents are stored in a single 'documents' bucket.
     """
     
     def __init__(self, supabase_client: Client):
@@ -25,86 +28,54 @@ class BucketManager:
             supabase_client: Initialized Supabase client
         """
         self.supabase = supabase_client
-        self._bucket_cache: Dict[str, bool] = {}
-        
-    def _normalize_bucket_name(self, name: str) -> str:
-        """
-        Normalize bucket name to valid Supabase bucket format.
-        
-        Args:
-            name: Raw bucket name
-            
-        Returns:
-            Normalized bucket name (lowercase, hyphens, no special chars)
-        """
-        # Convert to lowercase
-        normalized = name.lower()
-        # Replace spaces and underscores with hyphens
-        normalized = re.sub(r'[\s_]+', '-', normalized)
-        # Remove any characters that aren't alphanumeric or hyphens
-        normalized = re.sub(r'[^a-z0-9-]', '', normalized)
-        # Remove consecutive hyphens
-        normalized = re.sub(r'-+', '-', normalized)
-        # Remove leading/trailing hyphens
-        normalized = normalized.strip('-')
-        
-        # Ensure bucket name is not empty
-        if not normalized:
-            normalized = "documents"
-            
-        return normalized
+        self._bucket_verified = False
     
     async def get_or_create_bucket(
         self, 
-        document_type: str,
+        document_type: str = None,
         public: bool = False
     ) -> Dict[str, Any]:
         """
-        Get existing bucket or create new one for document type.
+        Get the documents bucket (creates if not exists).
+        All documents use the same 'documents' bucket regardless of type.
         
         Args:
-            document_type: Document type slug (e.g., "pan-card")
+            document_type: Ignored - kept for backward compatibility
             public: Whether bucket should be public
             
         Returns:
             Dict with bucket info (name, created, error if any)
         """
-        bucket_name = f"{self._normalize_bucket_name(document_type)}-documents"
-        
         try:
-            # Check cache first
-            if bucket_name in self._bucket_cache:
-                logger.debug(f"Bucket {bucket_name} found in cache")
+            # Check if already verified
+            if self._bucket_verified:
                 return {
-                    "bucket_name": bucket_name,
+                    "bucket_name": DEFAULT_BUCKET,
                     "created": False,
                     "cached": True
                 }
             
             # Check if bucket exists
-            existing = await self._bucket_exists(bucket_name)
+            existing = await self._bucket_exists(DEFAULT_BUCKET)
             
             if existing:
-                self._bucket_cache[bucket_name] = True
-                logger.info(f"Bucket {bucket_name} already exists")
+                self._bucket_verified = True
+                logger.info(f"Bucket '{DEFAULT_BUCKET}' verified")
                 return {
-                    "bucket_name": bucket_name,
+                    "bucket_name": DEFAULT_BUCKET,
                     "created": False,
                     "cached": False
                 }
             
-            # Create new bucket
-            result = await self._create_bucket(bucket_name, public)
+            # Create the documents bucket
+            result = await self._create_bucket(DEFAULT_BUCKET, public)
             
             if result["success"]:
-                self._bucket_cache[bucket_name] = True
-                logger.info(f"Created new bucket: {bucket_name}")
-                
-                # Register bucket in document_types table
-                await self._register_document_type(document_type, bucket_name)
+                self._bucket_verified = True
+                logger.info(f"Created bucket: {DEFAULT_BUCKET}")
                 
             return {
-                "bucket_name": bucket_name,
+                "bucket_name": DEFAULT_BUCKET,
                 "created": result["success"],
                 "error": result.get("error")
             }
@@ -112,7 +83,7 @@ class BucketManager:
         except Exception as e:
             logger.error(f"Error in get_or_create_bucket: {e}")
             return {
-                "bucket_name": bucket_name,
+                "bucket_name": DEFAULT_BUCKET,
                 "created": False,
                 "error": str(e)
             }
@@ -156,46 +127,18 @@ class BucketManager:
             logger.error(f"Error creating bucket {bucket_name}: {e}")
             return {"success": False, "error": error_msg}
     
-    async def _register_document_type(
-        self, 
-        document_type: str, 
-        bucket_name: str
-    ) -> None:
-        """Register document type in database if not exists."""
-        try:
-            # Check if already registered
-            result = self.supabase.table("document_types").select("*").eq(
-                "name", document_type
-            ).execute()
-            
-            if not result.data:
-                # Insert new document type
-                display_name = document_type.replace("-", " ").title()
-                self.supabase.table("document_types").insert({
-                    "name": document_type,
-                    "display_name": display_name,
-                    "bucket_name": bucket_name,
-                    "icon": "FileText",
-                    "color": "#6366f1"
-                }).execute()
-                logger.info(f"Registered new document type: {document_type}")
-                
-        except Exception as e:
-            # Table might not exist yet, log but don't fail
-            logger.warning(f"Could not register document type: {e}")
-    
     async def upload_to_bucket(
         self,
-        bucket_name: str,
-        file_path: str,
-        file_bytes: bytes,
+        bucket_name: str = None,
+        file_path: str = "",
+        file_bytes: bytes = b"",
         content_type: str = "application/pdf"
     ) -> Dict[str, Any]:
         """
-        Upload file to specified bucket.
+        Upload file to the documents bucket.
         
         Args:
-            bucket_name: Target bucket name
+            bucket_name: Ignored - all files go to 'documents' bucket (kept for backward compatibility)
             file_path: Path within bucket
             file_bytes: File content
             content_type: MIME type
@@ -204,26 +147,24 @@ class BucketManager:
             Upload result with public URL if successful
         """
         try:
-            # Ensure bucket exists
-            await self.get_or_create_bucket(
-                bucket_name.replace("-documents", "")
-            )
+            # Ensure documents bucket exists
+            await self.get_or_create_bucket()
             
-            # Upload file
-            result = self.supabase.storage.from_(bucket_name).upload(
+            # Always upload to 'documents' bucket
+            result = self.supabase.storage.from_(DEFAULT_BUCKET).upload(
                 file_path,
                 file_bytes,
                 {"content-type": content_type}
             )
             
             # Get public URL
-            public_url = self.supabase.storage.from_(bucket_name).get_public_url(
+            public_url = self.supabase.storage.from_(DEFAULT_BUCKET).get_public_url(
                 file_path
             )
             
             return {
                 "success": True,
-                "bucket": bucket_name,
+                "bucket": DEFAULT_BUCKET,
                 "path": file_path,
                 "public_url": public_url
             }
@@ -232,12 +173,12 @@ class BucketManager:
             error_msg = str(e)
             # Handle duplicate file
             if "duplicate" in error_msg.lower() or "already exists" in error_msg.lower():
-                public_url = self.supabase.storage.from_(bucket_name).get_public_url(
+                public_url = self.supabase.storage.from_(DEFAULT_BUCKET).get_public_url(
                     file_path
                 )
                 return {
                     "success": True,
-                    "bucket": bucket_name,
+                    "bucket": DEFAULT_BUCKET,
                     "path": file_path,
                     "public_url": public_url,
                     "already_existed": True
@@ -249,8 +190,8 @@ class BucketManager:
                 "error": error_msg
             }
     
-    async def list_buckets(self) -> List[Dict[str, Any]]:
-        """List all document type buckets."""
+    async def list_buckets(self) -> list:
+        """List the documents bucket."""
         try:
             buckets = self.supabase.storage.list_buckets()
             return [
@@ -260,20 +201,20 @@ class BucketManager:
                     "created_at": b.created_at
                 }
                 for b in buckets
-                if b.name.endswith("-documents")
+                if b.name == DEFAULT_BUCKET
             ]
         except Exception as e:
             logger.error(f"Error listing buckets: {e}")
             return []
     
-    async def get_bucket_stats(self, bucket_name: str) -> Dict[str, Any]:
-        """Get statistics for a bucket."""
+    async def get_bucket_stats(self, bucket_name: str = None) -> Dict[str, Any]:
+        """Get statistics for the documents bucket."""
         try:
-            files = self.supabase.storage.from_(bucket_name).list()
+            files = self.supabase.storage.from_(DEFAULT_BUCKET).list()
             total_size = sum(f.get("metadata", {}).get("size", 0) for f in files)
             
             return {
-                "bucket_name": bucket_name,
+                "bucket_name": DEFAULT_BUCKET,
                 "file_count": len(files),
                 "total_size_bytes": total_size,
                 "total_size_mb": round(total_size / (1024 * 1024), 2)
@@ -281,6 +222,6 @@ class BucketManager:
         except Exception as e:
             logger.error(f"Error getting bucket stats: {e}")
             return {
-                "bucket_name": bucket_name,
+                "bucket_name": DEFAULT_BUCKET,
                 "error": str(e)
             }
