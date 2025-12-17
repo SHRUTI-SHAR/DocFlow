@@ -197,7 +197,6 @@ export function useExternalSharing() {
         .update({
           status: 'revoked',
           revoked_at: new Date().toISOString(),
-          revoked_by: user.id,
         } as any)
         .eq('id', shareId) as any);
 
@@ -210,6 +209,7 @@ export function useExternalSharing() {
 
       await fetchShares();
     } catch (error: any) {
+      console.error('Error revoking share:', error);
       toast({
         title: "Error revoking share",
         description: error.message,

@@ -243,11 +243,28 @@ export default function GuestAccessPage() {
         return;
       }
 
+      // Determine file type from multiple possible fields
+      const fileName = docData.file_name || docData.original_name || docData.name || '';
+      const fileExtension = fileName.split('.').pop()?.toLowerCase() || '';
+      const mimeType = docData.mime_type || docData.file_type || '';
+      const documentType = docData.document_type || '';
+
+      // Combine all type information for better detection
+      const fileType = mimeType || documentType || fileExtension;
+
+      console.log('📄 Document data:', {
+        fileName,
+        fileExtension,
+        mimeType,
+        documentType,
+        finalFileType: fileType
+      });
+
       setDocument({
         id: docData.id,
-        file_name: docData.file_name || docData.original_name || docData.name,
+        file_name: fileName,
         storage_path: docData.storage_path,
-        file_type: docData.document_type || docData.mime_type,
+        file_type: fileType,
         extracted_text: docData.extracted_text
       });
 
@@ -264,6 +281,34 @@ export default function GuestAccessPage() {
     } catch (err) {
       console.error('Error fetching document:', err);
     }
+  };
+
+  // Helper function to determine if file is previewable and what type
+  const getPreviewType = (fileType: string | undefined, fileName: string | undefined): 'pdf' | 'image' | 'text' | 'none' => {
+    if (!fileType && !fileName) return 'none';
+
+    const type = (fileType || '').toLowerCase();
+    const name = (fileName || '').toLowerCase();
+    const extension = name.split('.').pop() || '';
+
+    // Check for PDF
+    if (type.includes('pdf') || extension === 'pdf') {
+      return 'pdf';
+    }
+
+    // Check for images
+    if (type.includes('image') ||
+      ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(extension)) {
+      return 'image';
+    }
+
+    // Check for text-based documents
+    if (type.includes('text') ||
+      ['txt', 'md', 'csv', 'json', 'xml', 'html', 'css', 'js'].includes(extension)) {
+      return 'text';
+    }
+
+    return 'none';
   };
 
   const handleViewDocument = () => {
@@ -436,32 +481,54 @@ export default function GuestAccessPage() {
 
         {/* Document Viewer */}
         <div className="flex-1 p-4">
-          {document?.file_type?.includes('pdf') ? (
-            <iframe
-              src={documentUrl}
-              className="w-full h-full min-h-[calc(100vh-80px)] rounded-lg border border-gray-700"
-              title={resourceName}
-            />
-          ) : document?.file_type?.includes('image') ? (
-            <div className="flex items-center justify-center h-full">
-              <img
-                src={documentUrl}
-                alt={resourceName}
-                className="max-w-full max-h-[calc(100vh-100px)] rounded-lg shadow-xl"
-              />
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <FileText className="h-20 w-20 text-gray-600 mb-4" />
-              <p className="text-gray-400 mb-4">Preview not available for this file type</p>
-              {(allowDownload || permission === 'download') && (
-                <Button onClick={handleDownload} disabled={downloading}>
-                  <Download className="h-4 w-4 mr-2" />
-                  Download to View
-                </Button>
-              )}
-            </div>
-          )}
+          {(() => {
+            const previewType = getPreviewType(document?.file_type, document?.file_name);
+
+            if (previewType === 'pdf') {
+              return (
+                <iframe
+                  src={documentUrl}
+                  className="w-full h-full min-h-[calc(100vh-80px)] rounded-lg border border-gray-700"
+                  title={resourceName}
+                />
+              );
+            } else if (previewType === 'image') {
+              return (
+                <div className="flex items-center justify-center h-full">
+                  <img
+                    src={documentUrl}
+                    alt={resourceName}
+                    className="max-w-full max-h-[calc(100vh-100px)] rounded-lg shadow-xl"
+                  />
+                </div>
+              );
+            } else if (previewType === 'text' && document?.extracted_text) {
+              return (
+                <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-xl p-8 min-h-[calc(100vh-100px)]">
+                  <pre className="whitespace-pre-wrap font-mono text-sm text-gray-800">
+                    {document.extracted_text}
+                  </pre>
+                </div>
+              );
+            } else {
+              return (
+                <div className="flex flex-col items-center justify-center h-full text-center">
+                  <FileText className="h-20 w-20 text-gray-600 mb-4" />
+                  <p className="text-gray-400 mb-2">Preview not available for this file type</p>
+                  <p className="text-gray-500 text-sm mb-4">
+                    File: {document?.file_name || 'Unknown'}
+                    {document?.file_type && <span> ({document.file_type})</span>}
+                  </p>
+                  {(allowDownload || permission === 'download') && (
+                    <Button onClick={handleDownload} disabled={downloading}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Download to View
+                    </Button>
+                  )}
+                </div>
+              );
+            }
+          })()}
         </div>
       </div>
     );
