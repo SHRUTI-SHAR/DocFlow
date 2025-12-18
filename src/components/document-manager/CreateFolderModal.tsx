@@ -25,10 +25,12 @@ import {
   Heart,
   Shield,
   Zap,
-  Target
+  Target,
+  Loader2
 } from 'lucide-react';
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { API_BASE_URL } from "@/config/api";
 
 interface CreateFolderModalProps {
   isOpen: boolean;
@@ -180,22 +182,38 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
       // If it's a smart folder and newly created, trigger organization of existing documents
       if (formData.isSmart && data && data[0] && !initialData) {
         try {
-          const fastApiUrl = (import.meta as any).env.VITE_FASTAPI_URL;
-          if (!fastApiUrl) throw new Error('VITE_FASTAPI_URL is required');
-          const organizeResponse = await fetch(`${fastApiUrl}/api/v1/organize-existing-documents`, {
+          toast({
+            title: "Organizing Documents",
+            description: "AI is matching existing documents to your smart folder criteria...",
+          });
+
+          const organizeResponse = await fetch(`${API_BASE_URL}/api/v1/organize-existing-documents`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ folderId: data[0].id })
           });
 
           if (organizeResponse.ok) {
-            const organizeResult = await organizeResponse.json();
-            toast({
-              title: "Smart Folder Active",
-              description: `Organized ${organizeResult.documentsAdded} existing documents into "${formData.name}"`,
-            });
+            const organizeResult = await organizeResponse.json() as { documentsAdded?: number };
+            if (organizeResult.documentsAdded && organizeResult.documentsAdded > 0) {
+              toast({
+                title: "Smart Folder Active! ✨",
+                description: `Organized ${organizeResult.documentsAdded} existing documents into "${formData.name}"`,
+              });
+            } else {
+              toast({
+                title: "Smart Folder Created",
+                description: `No existing documents matched the criteria. New documents will be organized automatically.`,
+              });
+            }
           } else {
-            console.warn('Failed to organize existing documents, but folder was created');
+            const errorData = await organizeResponse.json().catch(() => ({})) as { detail?: string };
+            // eslint-disable-next-line no-console
+            console.warn('Failed to organize existing documents:', errorData);
+            toast({
+              title: "Smart Folder Created",
+              description: "Folder created. Organization of existing documents will happen when you upload new files.",
+            });
           }
         } catch (error) {
           console.warn('Failed to organize existing documents:', error);
@@ -469,11 +487,18 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
 
           {/* Actions */}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={isCreating}>
               Cancel
             </Button>
             <Button type="submit" disabled={isCreating}>
-              {isCreating ? (initialData ? 'Updating...' : 'Creating...') : (initialData ? 'Update Folder' : 'Create Folder')}
+              {isCreating ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {initialData ? 'Updating...' : 'Creating...'}
+                </>
+              ) : (
+                initialData ? 'Update Folder' : 'Create Folder'
+              )}
             </Button>
           </div>
         </form>

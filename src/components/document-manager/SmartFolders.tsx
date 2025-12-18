@@ -113,18 +113,34 @@ export const SmartFolders: React.FC<SmartFoldersProps> = ({
         return;
       }
 
-      // Fetch actual document counts from document_shortcuts
+      // Fetch actual document counts from document_folder_relationships
       const folderIds = data?.map(f => f.id) || [];
+      
+      // Try document_folder_relationships first (used by smart folder AI)
+      let countsByFolder: { [key: string]: number } = {};
+      
+      const { data: relationships, error: relError } = await supabase
+        .from('document_folder_relationships')
+        .select('folder_id')
+        .in('folder_id', folderIds);
+
+      if (!relError && relationships) {
+        relationships.forEach(rel => {
+          countsByFolder[rel.folder_id] = (countsByFolder[rel.folder_id] || 0) + 1;
+        });
+      }
+      
+      // Also check document_shortcuts for manually assigned documents
       const { data: shortcuts } = await supabase
         .from('document_shortcuts')
         .select('folder_id')
         .in('folder_id', folderIds);
-
-      // Count documents per folder
-      const countsByFolder: { [key: string]: number } = {};
-      shortcuts?.forEach(shortcut => {
-        countsByFolder[shortcut.folder_id] = (countsByFolder[shortcut.folder_id] || 0) + 1;
-      });
+      
+      if (shortcuts) {
+        shortcuts.forEach(shortcut => {
+          countsByFolder[shortcut.folder_id] = (countsByFolder[shortcut.folder_id] || 0) + 1;
+        });
+      }
 
       // Update folders with actual counts
       const foldersWithCounts = data?.map(folder => ({
@@ -286,16 +302,21 @@ export const SmartFolders: React.FC<SmartFoldersProps> = ({
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+        const errorData = await response.json().catch(() => ({ detail: response.statusText })) as { detail?: string };
         throw new Error(errorData.detail || 'Failed to organize documents');
       }
 
-      const result = await response.json();
+      const result = await response.json() as { 
+        success?: boolean; 
+        message?: string; 
+        documentsOrganized?: number; 
+        foldersCreated?: unknown[] 
+      };
 
       if (result.success) {
         toast({
           title: "Smart Folders Created",
-          description: result.message || `Organized ${result.documentsOrganized} documents into ${result.foldersCreated?.length || 0} folders`,
+          description: result.message || `Organized ${result.documentsOrganized || 0} documents into ${result.foldersCreated?.length || 0} folders`,
         });
         
         // Refresh folders list
@@ -305,6 +326,7 @@ export const SmartFolders: React.FC<SmartFoldersProps> = ({
       }
 
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error('Error organizing documents:', error);
       toast({
         title: "Organization Failed",

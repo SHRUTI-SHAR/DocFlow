@@ -24,6 +24,7 @@ interface Document {
   file_name: string;
   file_type: string;
   created_at: string;
+  processing_status?: string;
   insights?: DocumentInsight;
   tags?: DocumentTag[];
   is_deleted?: boolean;
@@ -251,7 +252,9 @@ export const AIRecommendations: React.FC<AIRecommendationsProps> = ({ documents,
     // Find recently uploaded documents without AI analysis
     const recentUnanalyzed = documents.filter(doc => {
       const daysSinceUpload = (Date.now() - new Date(doc.created_at).getTime()) / (1000 * 60 * 60 * 24);
-      return daysSinceUpload <= 7 && !doc.insights && !doc.is_deleted;
+      // Check if document is pending (no insights or processing_status is not completed)
+      const isPending = !doc.insights || doc.processing_status === 'pending' || doc.processing_status === 'processing';
+      return daysSinceUpload <= 30 && isPending && !doc.is_deleted;
     });
 
     if (recentUnanalyzed.length > 0) {

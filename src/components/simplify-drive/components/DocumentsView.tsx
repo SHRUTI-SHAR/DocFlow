@@ -3,6 +3,7 @@ import { DocumentGrid } from '@/components/document-manager/DocumentGrid';
 import { DocumentList } from '@/components/document-manager/DocumentList';
 import { SmartFolders } from '@/components/document-manager/SmartFolders';
 import { AIRecommendations } from '@/components/document-manager/AIRecommendations';
+import { MediaBrowser } from '../MediaBrowser';
 import { FileText } from 'lucide-react';
 import type { Document, ViewMode } from '../types';
 
@@ -25,6 +26,8 @@ export function DocumentsView({
   onDocumentClick,
   onRefresh,
 }: DocumentsViewProps) {
+  console.log('📄 DocumentsView: documents count:', documents.length, 'selectedFolder:', selectedFolder);
+  
   return (
     <div className="flex flex-col lg:flex-row gap-6 p-4">
       {aiInsightsEnabled && (
@@ -38,7 +41,17 @@ export function DocumentsView({
       )}
 
       <main className="flex-1 min-w-0">
-        {documents.length === 0 ? (
+        {selectedFolder === 'media-browser' ? (
+          <MediaBrowser
+            documents={documents}
+            onDocumentSelect={(doc: Document) => onDocumentClick?.(doc)}
+            onDocumentAction={(action: string, _doc: Document) => {
+              if (action === 'delete' || action === 'move') {
+                onRefresh?.();
+              }
+            }}
+          />
+        ) : documents.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16">
             <FileText className="h-16 w-16 text-muted-foreground/50 mb-4" />
             <h3 className="text-lg font-medium mb-2">No documents yet</h3>
@@ -49,7 +62,7 @@ export function DocumentsView({
         ) : viewMode === 'grid' ? (
           <DocumentGrid 
             documents={documents}
-            onDocumentClick={(doc) => {
+            onDocumentClick={(doc: any) => {
               const fullDoc = documents.find(d => d.id === doc.id);
               if (fullDoc) onDocumentClick?.(fullDoc);
             }}
@@ -58,7 +71,7 @@ export function DocumentsView({
         ) : (
           <DocumentList 
             documents={documents}
-            onDocumentClick={(doc) => {
+            onDocumentClick={(doc: any) => {
               const fullDoc = documents.find(d => d.id === doc.id);
               if (fullDoc) onDocumentClick?.(fullDoc);
             }}

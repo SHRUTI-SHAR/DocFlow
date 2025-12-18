@@ -72,7 +72,7 @@ class OrganizeDocumentsService:
             documents_response = self.supabase.from_('documents').select("""
                 id,
                 user_id,
-                filename,
+                file_name,
                 file_type,
                 extracted_text,
                 created_at,
@@ -106,7 +106,8 @@ class OrganizeDocumentsService:
                         
                         match_result = self._matches_criteria(formatted_document, folder['ai_criteria'])
                         
-                        logger.info(f"Document \"{document['filename']}\": matches={match_result['matches']}, confidence={match_result['confidence']:.2f}")
+                        doc_name = document.get('file_name', 'Unknown')
+                        logger.info(f"Document \"{doc_name}\": matches={match_result['matches']}, confidence={match_result['confidence']:.2f}")
                         
                         if match_result['matches']:
                             # Insert relationship
@@ -114,23 +115,25 @@ class OrganizeDocumentsService:
                                 "document_id": document['id'],
                                 "folder_id": folder_id,
                                 "confidence_score": match_result['confidence'],
-                                "is_auto_assigned": True
+                                "is_auto_assigned": True,
+                                "assigned_reason": ', '.join(match_result['reasons'][:3]) if match_result['reasons'] else None
                             }).execute()
                             
                             if relationship_response.error:
-                                logger.error(f"Error inserting relationship for document {document['filename']}: {relationship_response.error}")
+                                logger.error(f"Error inserting relationship for document {doc_name}: {relationship_response.error}")
                             else:
                                 documents_added += 1
                                 organization_results.append({
                                     "documentId": document['id'],
-                                    "documentName": document['filename'],
+                                    "documentName": doc_name,
                                     "confidence": match_result['confidence'],
                                     "reasons": match_result['reasons']
                                 })
                                 
-                                logger.info(f"✓ Added document to folder: {document['filename']} (confidence: {match_result['confidence'] * 100:.0f}%)")
+                                logger.info(f"✓ Added document to folder: {doc_name} (confidence: {match_result['confidence'] * 100:.0f}%)")
                     except Exception as e:
-                        logger.error(f"Error processing document {document['filename']}: {str(e)}")
+                        doc_name = document.get('file_name', 'Unknown')
+                        logger.error(f"Error processing document {doc_name}: {str(e)}")
                 
                 # Update folder document count
                 if documents_added > 0:
@@ -171,7 +174,7 @@ class OrganizeDocumentsService:
             max_score += 30
             content_types = [t.lower() for t in criteria['content_type']]
             document_text = (document.get('extracted_text') or '').lower()
-            file_name = (document.get('filename') or '').lower()
+            file_name = (document.get('file_name') or '').lower()
             document_type = (document.get('insights', {}).get('document_type') or '').lower()
             
             content_match = False
@@ -227,7 +230,7 @@ class OrganizeDocumentsService:
         if criteria.get('keywords') and isinstance(criteria['keywords'], list):
             max_score += 25
             document_text = (document.get('extracted_text') or '').lower()
-            file_name = (document.get('filename') or '').lower()
+            file_name = (document.get('file_name') or '').lower()
             keyword_matches = 0
             
             for keyword in criteria['keywords']:

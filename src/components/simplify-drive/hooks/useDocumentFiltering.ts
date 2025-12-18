@@ -27,9 +27,10 @@ export function useDocumentFiltering({
         doc.extracted_text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         doc.insights?.summary?.toLowerCase().includes(searchQuery.toLowerCase());
 
-      // Special handling for recycle-bin folder - don't filter, show all deleted documents
+      // Special handling for recycle-bin and media-browser - don't filter by folder
       const matchesFolder = selectedFolder === 'all' || 
         selectedFolder === 'recycle-bin' ||
+        selectedFolder === 'media-browser' ||
         doc.folders?.some(folder => folder.id === selectedFolder);
 
       const matchesTag = selectedTag === 'all' || 

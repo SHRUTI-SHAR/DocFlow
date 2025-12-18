@@ -61,7 +61,7 @@ class OrganizeSmartFoldersService:
             document_response = self.supabase.from_('documents').select("""
                 id,
                 user_id,
-                filename,
+                file_name,
                 file_type,
                 extracted_text,
                 created_at,
@@ -78,7 +78,8 @@ class OrganizeSmartFoldersService:
                 raise Exception("Document not found")
             
             document = document_response.data[0]
-            logger.info(f"Found document: {document['filename']}")
+            doc_name = document.get('file_name', 'Unknown')
+            logger.info(f"Found document: {doc_name}")
             
             # Format document with insights
             formatted_document = {
@@ -175,7 +176,7 @@ class OrganizeSmartFoldersService:
             max_score += 30
             content_types = [t.lower() for t in criteria['content_type']]
             document_text = (document.get('extracted_text') or '').lower()
-            file_name = (document.get('filename') or '').lower()
+            file_name = (document.get('file_name') or '').lower()
             document_type = (document.get('insights', {}).get('document_type') or '').lower()
             
             content_match = False
@@ -231,7 +232,7 @@ class OrganizeSmartFoldersService:
         if criteria.get('keywords') and isinstance(criteria['keywords'], list):
             max_score += 25
             document_text = (document.get('extracted_text') or '').lower()
-            file_name = (document.get('filename') or '').lower()
+            file_name = (document.get('file_name') or '').lower()
             keyword_matches = 0
             
             for keyword in criteria['keywords']:

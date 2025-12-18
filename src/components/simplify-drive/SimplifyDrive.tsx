@@ -28,6 +28,8 @@ export function SimplifyDrive() {
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   
+  console.log('🔍 SimplifyDrive: documents count:', documents.length, 'selectedFolder:', selectedFolder);
+  
   const { filteredDocuments } = useDocumentFiltering({
     documents,
     searchQuery,

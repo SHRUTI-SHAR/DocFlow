@@ -134,6 +134,8 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
       }
 
       // Otherwise fetch regular (non-deleted) documents
+      console.log('📊 useDocuments: Fetching documents. selectedFolder:', selectedFolder);
+      
       let query = supabase
         .from('documents')
         .select('*')
@@ -141,10 +143,13 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
         .eq('is_deleted', false);
 
       // If a specific folder is selected (not 'all' or special folders), filter by folder
-      if (selectedFolder && selectedFolder !== 'all' && selectedFolder !== 'media-browser') {
+      if (selectedFolder && selectedFolder !== 'all' && selectedFolder !== 'media-browser' && selectedFolder !== 'recycle-bin') {
         console.log('📁 Fetching documents for specific folder:', selectedFolder);
         
-        // First, get document IDs that belong to this folder from document_shortcuts
+        // Get document IDs from both document_shortcuts AND document_folder_relationships
+        const documentIdSet = new Set<string>();
+        
+        // Check document_shortcuts (manual assignments)
         const { data: shortcuts, error: shortcutsError } = await supabase
           .from('document_shortcuts')
           .select('document_id')
@@ -152,9 +157,23 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
 
         if (shortcutsError) {
           console.error('Error fetching folder shortcuts:', shortcutsError);
+        } else {
+          shortcuts?.forEach(s => documentIdSet.add(s.document_id));
+        }
+        
+        // Check document_folder_relationships (AI-assigned)
+        const { data: relationships, error: relError } = await supabase
+          .from('document_folder_relationships')
+          .select('document_id')
+          .eq('folder_id', selectedFolder);
+
+        if (relError) {
+          console.error('Error fetching folder relationships:', relError);
+        } else {
+          relationships?.forEach(r => documentIdSet.add(r.document_id));
         }
 
-        const documentIds = shortcuts?.map(s => s.document_id) || [];
+        const documentIds = Array.from(documentIdSet);
         console.log('📁 Document IDs in folder:', documentIds);
 
         if (documentIds.length === 0) {
@@ -170,6 +189,8 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
 
       const { data: documentsData, error } = await (query.order('created_at', { ascending: false }) as any);
 
+      console.log('📊 useDocuments: Query result - documents count:', documentsData?.length || 0);
+
       if (error) {
         console.error('Error fetching documents:', error);
         toast({
@@ -177,6 +198,7 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
           description: error.message,
           variant: "destructive",
         });
+        setLoading(false);
         return;
       }
 
@@ -238,6 +260,17 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
       const processedDocuments: Document[] = documentsWithUrls.map((doc: any) => {
         const displayName = doc.file_name || doc.original_name || doc.name || doc.file_path?.split('/').pop() || 'Unknown';
         
+        // Transform analysis_result from database to insights format
+        const analysisResult = doc.analysis_result;
+        const insights = analysisResult && Object.keys(analysisResult).length > 0 ? {
+          summary: analysisResult.summary || '',
+          key_topics: analysisResult.key_topics || [],
+          importance_score: analysisResult.importance_score || 0,
+          estimated_reading_time: analysisResult.estimated_reading_time || 0,
+          ai_generated_title: analysisResult.ai_generated_title || displayName,
+          suggested_actions: analysisResult.suggested_actions || []
+        } : undefined;
+        
         return {
           id: doc.id,
           file_name: displayName,
@@ -246,17 +279,17 @@ export function useDocuments(options: UseDocumentsOptions = {}) {
           created_at: doc.created_at,
           updated_at: doc.updated_at,
           extracted_text: doc.extracted_text || '',
-          processing_status: doc.processing_status || 'completed',
+          processing_status: doc.processing_status || 'pending',
           metadata: doc.metadata || {},
           storage_url: doc.storageUrl,
           storage_path: doc.storage_path,
-          insights: undefined,
+          insights: insights,
           tags: [],
           folders: foldersByDocument[doc.id] || []
         };
       });
-
-      console.log('📊 Processed documents with folders:', processedDocuments);
+      console.log('📊 useDocuments: Processed documents count:', processedDocuments.length);
+      console.log('📊 useDocuments: Sample document:', processedDocuments[0]);
       setDocuments(processedDocuments);
       setLoading(false);
     } catch (error) {

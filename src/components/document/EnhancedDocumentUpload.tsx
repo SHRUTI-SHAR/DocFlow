@@ -243,14 +243,14 @@ export const EnhancedDocumentUpload: React.FC<EnhancedDocumentUploadProps> = ({
           .from('documents')
           .insert({
             file_name: uploadFile.file.name,
-            file_path: uploadData.path,
+            storage_path: uploadData.path,
             file_size: uploadFile.file.size,
             file_type: uploadFile.file.type || 'application/octet-stream',
             document_type: getDocumentType(uploadFile.file.type),
             user_id: user.user.id,
-            extracted_text: '',
+            extracted_text: extractedText || '',
             upload_source: 'manual',
-            processing_status: 'completed',
+            processing_status: 'pending',
             metadata: {
               originalFileName: uploadFile.file.name,
               uploadedAt: new Date().toISOString(),

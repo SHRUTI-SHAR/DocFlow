@@ -509,13 +509,19 @@ export const DocumentGrid: React.FC<DocumentGridProps> = ({
             </div>
 
             {/* Processing Status */}
-            {document.processing_status !== 'completed' && (
+            {document.processing_status && document.processing_status !== 'completed' && (
               <div className="mt-2">
                 <Badge 
-                  variant={document.processing_status === 'processing' ? 'secondary' : 'destructive'}
+                  variant={
+                    document.processing_status === 'processing' ? 'secondary' : 
+                    document.processing_status === 'pending' ? 'outline' :
+                    'destructive'
+                  }
                   className="text-xs"
                 >
-                  {document.processing_status === 'processing' ? 'AI Processing...' : 'Processing Failed'}
+                  {document.processing_status === 'processing' ? 'AI Processing...' : 
+                   document.processing_status === 'pending' ? 'Pending Analysis' :
+                   'Processing Failed'}
                 </Badge>
               </div>
             )}
