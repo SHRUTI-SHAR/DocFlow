@@ -2,6 +2,13 @@ import React, { useState } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { supabase } from '@/integrations/supabase/client';
 import { 
   FileText, 
@@ -17,7 +24,12 @@ import {
   Sparkles,
   Pin,
   Lock,
-  UserMinus
+  UserMinus,
+  Trash2,
+  FolderPlus,
+  CloudOff,
+  CloudDownload,
+  RotateCcw
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
@@ -31,6 +43,8 @@ import {
 } from "@/components/ui/tooltip";
 import { CheckOutDialog } from '@/components/checkinout/CheckOutDialog';
 import { TransferOwnershipDialog } from '@/components/ownership/TransferOwnershipDialog';
+import { useOfflineMode } from '@/hooks/useOfflineMode';
+import { MoveToFolderDialog } from './MoveToFolderDialog';
 
 interface Document {
   id: string;
@@ -75,19 +89,142 @@ interface SmartFolder {
 interface DocumentGridProps {
   documents: Document[];
   onDocumentClick: (document: Document) => void;
+  onRefresh?: () => void;
 }
 
 export const DocumentGrid: React.FC<DocumentGridProps> = ({
   documents,
-  onDocumentClick
+  onDocumentClick,
+  onRefresh
 }) => {
   const { toast } = useToast();
   const { pinDocument, unpinDocument, isPinned } = useQuickAccess();
+  const { makeDocumentAvailableOffline, isDocumentOffline, removeDocumentFromOffline } = useOfflineMode();
   
   // Check Out and Transfer Dialog states
   const [showCheckOutDialog, setShowCheckOutDialog] = useState(false);
   const [showTransferDialog, setShowTransferDialog] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [offlineDocIds, setOfflineDocIds] = useState<Set<string>>(new Set());
+
+  // Check which documents are available offline
+  React.useEffect(() => {
+    const checkOfflineStatus = async () => {
+      const offlineIds = new Set<string>();
+      for (const doc of documents) {
+        const isOffline = await isDocumentOffline(doc.id);
+        if (isOffline) offlineIds.add(doc.id);
+      }
+      setOfflineDocIds(offlineIds);
+    };
+    checkOfflineStatus();
+  }, [documents, isDocumentOffline]);
+
+  const handleMakeOffline = async (document: Document) => {
+    const success = await makeDocumentAvailableOffline(document);
+    if (success) {
+      setOfflineDocIds(prev => new Set([...prev, document.id]));
+    }
+  };
+
+  const handleRemoveOffline = async (document: Document) => {
+    const success = await removeDocumentFromOffline(document.id);
+    if (success) {
+      setOfflineDocIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(document.id);
+        return newSet;
+      });
+    }
+  };
+
+  const handleMoveToFolder = (document: Document) => {
+    setSelectedDocument(document);
+    setMoveDialogOpen(true);
+  };
+
+  const handleDelete = async (document: Document) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/v1/documents/${document.id}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) throw new Error('Delete failed');
+      
+      toast({
+        title: "Moved to recycle bin",
+        description: `${document.file_name} has been moved to recycle bin`,
+      });
+      
+      if (onRefresh) {
+        await onRefresh();
+      }
+    } catch (error) {
+      console.error('Delete error:', error);
+      toast({
+        title: "Delete failed",
+        description: "Could not delete the document",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleRestore = async (document: Document) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/v1/documents/${document.id}/restore`, {
+        method: 'POST',
+      });
+      
+      if (!response.ok) throw new Error('Restore failed');
+      
+      toast({
+        title: "Document restored",
+        description: `${document.file_name} has been restored`,
+      });
+      
+      if (onRefresh) {
+        await onRefresh();
+      }
+    } catch (error) {
+      console.error('Restore error:', error);
+      toast({
+        title: "Restore failed",
+        description: "Could not restore the document",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handlePermanentDelete = async (document: Document) => {
+    if (!confirm(`Permanently delete "${document.file_name}"? This action cannot be undone.`)) {
+      return;
+    }
+    
+    try {
+      const response = await fetch(`http://localhost:8000/api/v1/documents/${document.id}/permanent`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) throw new Error('Permanent delete failed');
+      
+      toast({
+        title: "Document permanently deleted",
+        description: `${document.file_name} has been permanently deleted`,
+      });
+      
+      if (onRefresh) {
+        await onRefresh();
+      }
+    } catch (error) {
+      console.error('Permanent delete error:', error);
+      toast({
+        title: "Delete failed",
+        description: "Could not permanently delete the document",
+        variant: "destructive"
+      });
+    }
+  };
 
   const handleView = (document: Document) => {
     // Trigger the parent click handler which opens the modal viewer
@@ -228,14 +365,122 @@ export const DocumentGrid: React.FC<DocumentGridProps> = ({
                   </Tooltip>
                 </TooltipProvider>
                 
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="opacity-0 group-hover:opacity-100 h-7 w-7 p-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <MoreHorizontal className="w-4 h-4" />
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="opacity-0 group-hover:opacity-100 h-7 w-7 p-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenuItem onClick={(e) => {
+                      e.stopPropagation();
+                      onDocumentClick(document);
+                    }}>
+                      <Eye className="w-4 h-4 mr-2" />
+                      View
+                    </DropdownMenuItem>
+                    {(document.metadata as any)?.is_deleted ? (
+                      // Recycle bin options
+                      <>
+                        <DropdownMenuItem onClick={(e) => {
+                          e.stopPropagation();
+                          handleRestore(document);
+                        }}>
+                          <RotateCcw className="w-4 h-4 mr-2" />
+                          Restore
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handlePermanentDelete(document);
+                          }}
+                          className="text-red-600"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete Permanently
+                        </DropdownMenuItem>
+                      </>
+                    ) : (
+                      // Normal options
+                      <>
+                        <DropdownMenuItem onClick={(e) => {
+                          e.stopPropagation();
+                          handleDownload(document);
+                        }}>
+                          <Download className="w-4 h-4 mr-2" />
+                          Download
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e) => {
+                          e.stopPropagation();
+                          handleShare(document);
+                        }}>
+                          <Share className="w-4 h-4 mr-2" />
+                          Share
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e) => {
+                          e.stopPropagation();
+                          handleMoveToFolder(document);
+                        }}>
+                          <FolderPlus className="w-4 h-4 mr-2" />
+                          Move to Folder
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedDocument(document);
+                          setShowCheckOutDialog(true);
+                        }}>
+                          <Lock className="w-4 h-4 mr-2" />
+                          Check Out
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedDocument(document);
+                          setShowTransferDialog(true);
+                        }}>
+                          <UserMinus className="w-4 h-4 mr-2" />
+                          Transfer Ownership
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        {/* Offline options */}
+                        {offlineDocIds.has(document.id) ? (
+                          <DropdownMenuItem onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveOffline(document);
+                          }}>
+                            <CloudOff className="w-4 h-4 mr-2" />
+                            Remove from Offline
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem onClick={(e) => {
+                            e.stopPropagation();
+                            handleMakeOffline(document);
+                          }}>
+                            <CloudDownload className="w-4 h-4 mr-2" />
+                            Make Available Offline
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(document);
+                          }}
+                          className="text-red-600"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
 
@@ -326,76 +571,6 @@ export const DocumentGrid: React.FC<DocumentGridProps> = ({
               )}
             </div>
 
-            {/* Primary Actions */}
-            <div className="flex gap-1.5 mt-3">
-              <Button 
-                variant="ghost" 
-                size="sm"
-                className="flex-1 h-8 text-xs px-2 hover:bg-gray-100"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleView(document);
-                }}
-              >
-                <Eye className="w-3.5 h-3.5 mr-1" />
-                <span className="hidden sm:inline">View</span>
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="sm"
-                className="flex-1 h-8 text-xs px-2 hover:bg-gray-100"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDownload(document);
-                }}
-              >
-                <Download className="w-3.5 h-3.5 mr-1" />
-                <span className="hidden sm:inline">Download</span>
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="sm"
-                className="flex-1 h-8 text-xs px-2 hover:bg-gray-100"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleShare(document);
-                }}
-              >
-                <Share className="w-3.5 h-3.5 mr-1" />
-                <span className="hidden sm:inline">Share</span>
-              </Button>
-            </div>
-            
-            {/* Document Management Actions */}
-            <div className="flex gap-1.5 mt-2">
-              <Button 
-                variant="outline" 
-                size="sm"
-                className="flex-1 h-8 text-xs px-2 bg-blue-50/50 hover:bg-blue-50 border-blue-200/60 text-blue-600 hover:text-blue-700"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedDocument(document);
-                  setShowCheckOutDialog(true);
-                }}
-              >
-                <Lock className="w-3.5 h-3.5 mr-1" />
-                Check Out
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm"
-                className="flex-1 h-8 text-xs px-2 bg-purple-50/50 hover:bg-purple-50 border-purple-200/60 text-purple-600 hover:text-purple-700"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedDocument(document);
-                  setShowTransferDialog(true);
-                }}
-              >
-                <UserMinus className="w-3.5 h-3.5 mr-1" />
-                Transfer
-              </Button>
-            </div>
-
             {/* Processing Status */}
             {document.processing_status && document.processing_status !== 'completed' && (
               <div className="mt-2">
@@ -438,11 +613,18 @@ export const DocumentGrid: React.FC<DocumentGridProps> = ({
             onOpenChange={setShowTransferDialog}
             documentId={selectedDocument.id}
             documentName={selectedDocument.file_name}
-            onSuccess={() => {
-              toast({
-                title: "Transfer initiated",
-                description: "The recipient will be notified to accept or reject the transfer.",
-              });
+          />
+
+          <MoveToFolderDialog
+            isOpen={moveDialogOpen}
+            onClose={() => {
+              setMoveDialogOpen(false);
+              setSelectedDocument(null);
+            }}
+            documentId={selectedDocument.id}
+            documentName={selectedDocument.file_name}
+            onMoved={() => {
+              onRefresh?.();
             }}
           />
         </>
